@@ -1,0 +1,11 @@
+node_modules/
+
+# 测试与截图产物
+*.png
+!assets/**/*.png
+!docs/**/*.png
+.playwright-cli/
+
+# 系统/编辑器
+.DS_Store
+*.log

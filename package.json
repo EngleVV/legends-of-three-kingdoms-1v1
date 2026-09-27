@@ -1,0 +1,19 @@
+{
+  "name": "sanguosha",
+  "version": "1.0.0",
+  "description": "三国杀 1v1 复刻（标准版）",
+  "type": "module",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/",
+    "test:rules": "node tests/ui-rules-check.js",
+    "test:play": "node tests/ui-dom.js 16",
+    "shot": "node tests/shot.js shot"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "jsdom": "^29.1.1",
+    "playwright": "^1.63.0"
+  }
+}

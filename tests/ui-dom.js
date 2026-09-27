@@ -1,0 +1,156 @@
+// 诊断脚本：jsdom 加载真实 UI（index.html + app.js），自动点击连续跑多局
+// 用法：node tests/ui-dom.js [局数]
+import { JSDOM } from 'jsdom';
+import { readFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
+
+const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+const rounds = Number(process.argv[2] || 5);
+
+// 覆盖统计：日志中出现即记为已覆盖
+const COVERAGE_KEYS = [
+  '仁德', '奸雄', '制衡', '观星', '空城', '反馈', '鬼才',
+  '八卦阵', '雌雄双股剑', '贯石斧', '闪电', '借刀杀人',
+  '南蛮入侵', '万箭齐发', '桃园结义', '五谷丰登', '无中生有',
+  '丈八蛇矛',
+];
+const covered = new Set();
+const anomalies = [];
+function scanLog(text) {
+  for (const k of COVERAGE_KEYS) if (text.includes(k)) covered.add(k);
+  for (const bad of ['undefined', 'NaN', '无来源牌', '??']) {
+    const i = text.indexOf(bad);
+    if (i >= 0) anomalies.push(`${bad} ← …${text.slice(Math.max(0, i - 40), i + 40)}…`);
+  }
+}
+
+const dom = new JSDOM(html, { url: pathToFileURL(process.cwd() + '/index.html') });
+global.document = dom.window.document;
+global.window = dom.window;
+process.on('unhandledRejection', e => console.log('UNHANDLED REJECTION:', e));
+
+// 去掉 AI 500ms 延迟，加速测试
+const { AIController } = await import('../src/ai/ai-controller.js');
+AIController.prototype.wait = async () => {};
+
+await import('../src/ui/app.js');
+
+const doc = document;
+const $ = s => doc.querySelector(s);
+const $$ = s => [...doc.querySelectorAll(s)];
+const click = el => {
+  clicks.push(el.dataset.action || el.dataset.cardId || el.className);
+  el.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+};
+const clicks = [];
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function playUntilOver(heroId) {
+  click($(`#setup [data-hero="${heroId}"]`));
+  await sleep(5);
+  click($('#setup [data-action="start-game"]'));
+  await sleep(5);
+
+  const t0 = Date.now();
+  let idleCount = 0;
+  while (Date.now() - t0 < 30000) {
+    if ($('#overlay')) {
+      scanLog($('#log').textContent);
+      return { ok: true, ms: Date.now() - t0 };
+    }
+
+    const prompt = $('#banner .prompt')?.textContent || '';
+    const actions = $$('#banner [data-action]');
+    const hasAction = name => actions.some(b => b.dataset.action === name);
+    const findAction = name => actions.find(b => b.dataset.action === name);
+    const handSel = $$('#hand-row .card.selectable');
+    const handUnselected = handSel.filter(c => !c.classList.contains('selected'));
+    const bannerCards = $$('#banner [data-card-id].selectable');
+    let acted = false;
+
+    // 出牌阶段已选中需要目标的牌 → 点头像
+    if (!acted && prompt.includes('为目标') && $('#opp-row .avatar')) {
+      click($('#opp-row .avatar')); acted = true;
+    }
+    // 确认类：先选牌再确认
+    if (!acted) {
+      const name = ['confirm-respond', 'confirm-peach', 'confirm-nullify', 'confirm-judge-replace', 'confirm-pick']
+        .find(hasAction);
+      if (name) {
+        const btn = findAction(name);
+        if (!btn.disabled) { click(btn); acted = true; }
+        else if (handUnselected.length) { click(handUnselected[0]); acted = true; }
+        else if (name === 'confirm-pick' && hasAction('cancel')) { click(findAction('cancel')); acted = true; }
+      }
+    }
+    if (!acted && hasAction('confirm-guanxing')) {
+      if (bannerCards.length) click(bannerCards[0]);
+      else click(findAction('confirm-guanxing'));
+      acted = true;
+    }
+    if (!acted) {
+      const zoneBtn = actions.find(b => b.dataset.action.startsWith('zone:'));
+      if (zoneBtn) { click(zoneBtn); acted = true; }
+    }
+    if (!acted && hasAction('confirm-play')) { click(findAction('confirm-play')); acted = true; }
+    if (!acted && hasAction('confirm-zhiheng') && !findAction('confirm-zhiheng').disabled) {
+      click(findAction('confirm-zhiheng')); acted = true;
+    }
+    if (!acted && handUnselected.length) { click(handUnselected[0]); acted = true; }
+    if (!acted && bannerCards.length) { click(bannerCards[0]); acted = true; }
+    if (!acted) {
+      for (const name of ['end-play', 'cancel', 'cancel-skill', 'no']) {
+        const btn = findAction(name);
+        if (btn && !btn.disabled) { click(btn); acted = true; break; }
+      }
+    }
+
+    if (acted) idleCount = 0;
+    else {
+      idleCount++;
+      if (idleCount > 300) {
+        const g = window.__sg?.();
+        const st = g ? g.players.map(p => ({
+          name: p.name, hp: p.hp,
+          hand: p.hand.map(c => c && `${c.name || '??'}${c.id || ''}`),
+          equip: Object.fromEntries(Object.entries(p.equip).map(([k, c]) => [k, c && `${c.name || '??'}#${c.id}`])),
+          judge: p.judgeZone.map(c => c && c.name),
+        })) : 'no game';
+        return {
+        ok: false,
+        prompt: '无操作可点卡死，banner="' + $('#banner').textContent.slice(0, 80) + '"'
+          + '\n  最近点击: ' + clicks.slice(-8).join(', ')
+          + '\n  状态: ' + JSON.stringify(st)
+          + '\n  对局日志尾: ' + [...$$('#log .log-line')].slice(-5).map(e => e.textContent).join(' | '),
+      };
+      }
+      await sleep(10);
+    }
+  }
+  return {
+    ok: false,
+    prompt: '30s 超时，banner="' + $('#banner').textContent.slice(0, 60) + '"'
+      + '\n  最近点击: ' + clicks.slice(-12).join(', ')
+      + '\n  对局日志尾: ' + [...$$('#log .log-line')].slice(-6).map(e => e.textContent).join(' | '),
+  };
+}
+
+let pass = 0;
+const heroes = ['liubei', 'caocao', 'sunquan', 'guanyu', 'zhugeliang', 'zhangfei', 'simayi', 'lvbu'];
+for (let i = 0; i < rounds; i++) {
+  const r = await playUntilOver(heroes[i % heroes.length]);
+  if (r.ok) { pass++; console.log(`局 ${i + 1} (${heroes[i % heroes.length]}): 完成 (${r.ms}ms)`); }
+  else console.log(`局 ${i + 1} (${heroes[i % heroes.length]}): 卡住！banner="${r.prompt}"`);
+  if (r.prompt?.includes('undefined') || r.prompt?.includes('NaN')) anomalies.push(r.prompt);
+  // 点"再来一局"回到选将界面
+  $('#overlay [data-action="restart"]')?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }));
+  await sleep(5);
+}
+console.log(`${pass}/${rounds} 完成`);
+if (anomalies.length) {
+  console.log(`\n异常 ${anomalies.length} 处：`);
+  for (const a of [...new Set(anomalies)].slice(0, 10)) console.log('  ' + a);
+}
+console.log(`\n日志覆盖 ${covered.size}/${COVERAGE_KEYS.length}：${[...covered].join('、')}`);
+console.log(`未覆盖：${COVERAGE_KEYS.filter(k => !covered.has(k)).join('、') || '（无）'}`);
+process.exit(pass === rounds && anomalies.length === 0 ? 0 : 1);

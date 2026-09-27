@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>三国杀 1v1</title>
+  <link rel="stylesheet" href="src/ui/style.css">
+</head>
+<body>
+  <div id="setup"></div>
+  <div id="game" class="hidden">
+    <!-- 左：牌桌 -->
+    <div id="table">
+      <div id="opp-row" class="player-row"></div>
+      <div id="center-row">
+        <div id="deck-info"></div>
+        <div id="field"></div>
+      </div>
+      <div id="self-row" class="player-row is-self"></div>
+      <div id="banner"></div>
+      <div id="hand-row"></div>
+    </div>
+    <!-- 右：战报 -->
+    <aside id="side">
+      <div id="side-title">战 报</div>
+      <div id="log"></div>
+    </aside>
+  </div>
+  <script type="module" src="src/ui/app.js"></script>
+</body>
+</html>
