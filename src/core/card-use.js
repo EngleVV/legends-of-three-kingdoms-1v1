@@ -313,11 +313,13 @@ export async function resolveCardUse(game, player, action) {
         card: card.real || card, source: player, target, name: '顺手牵羊',
         apply: async () => {
           const pick = await game.ask(player, 'askChooseCards', {
-            count: 1, from: 'target-area', reason: 'shunshou', info: { target },
+            count: 1, from: 'target-area', reason: 'shunshou', info: { target, card: card.real || card },
           });
           if (!pick || pick.length === 0) return;
           const c = game.takeCardFromArea(target, pick[0]);
           if (!c) return;
+          // 处理区同时展示被拿走的牌（官方语义），再进入手牌
+          if (game.lastAction) game.lastAction.spent = [c];
           player.hand.push(c);
           // 1v1 中获得方或失去方必为玩家本人，这张牌玩家本就可知，故写明
           game.log(`${player.name} 获得了 ${target.name} 的${pick[0] === 'hand' ? '手牌' : ''} ${cardLabel(c)}`);
@@ -332,11 +334,13 @@ export async function resolveCardUse(game, player, action) {
         card: card.real || card, source: player, target, name: '过河拆桥',
         apply: async () => {
           const pick = await game.ask(player, 'askChooseCards', {
-            count: 1, from: 'target-area', reason: 'guohe', info: { target },
+            count: 1, from: 'target-area', reason: 'guohe', info: { target, card: card.real || card },
           });
           if (!pick || pick.length === 0) return;
           const c = game.takeCardFromArea(target, pick[0]);
           if (!c) return;
+          // 先让处理区展示被拆掉的牌，再置入弃牌堆（discardCards 内部会 notify）
+          if (game.lastAction) game.lastAction.spent = [c];
           game.discardCards([c]);
           game.log(`${player.name} 弃置了 ${target.name} 的${pick[0] === 'hand' ? '手牌' : ''} ${cardLabel(c)}`);
         },

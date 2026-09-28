@@ -267,7 +267,8 @@ function fieldHtml(game) {
     cards = game.pendingDiscard.slice(-4);
     label = '结算中';
   } else if (act) {
-    cards = realsOf(act.card).slice(0, 4);
+    // 所用牌 + 该效果从目标处拆掉/拿走的牌（官方处理区语义）
+    cards = [...realsOf(act.card), ...(act.spent || [])].slice(0, 4);
     const targetNames = (act.targets || []).map(t => t.name).join('、');
     label = `${act.player.name}${targetNames ? ` → ${targetNames}` : ''}`;
   } else {
@@ -447,10 +448,10 @@ function bannerHtml(game, ui) {
 function pickerHtml(game, ui) {
   const pend = ui.pending;
   const me = game.players[0];
-  const panel = (title, sub, body, foot = '') => `
+  const panel = (title, sub, body, foot = '', subClass = '') => `
     <div class="picker-panel">
       <div class="picker-title">${title}</div>
-      ${sub ? `<div class="picker-sub">${sub}</div>` : ''}
+      ${sub ? `<div class="picker-sub ${subClass}">${sub}</div>` : ''}
       ${body}
       ${foot ? `<div class="picker-foot">${foot}</div>` : ''}
     </div>`;
@@ -494,7 +495,10 @@ function pickerHtml(game, ui) {
       ? sections.map(([label, html]) => `<div class="pick-sec"><div class="pick-label">${label}</div><div class="pick-row">${html}</div></div>`).join('')
       : '<div class="picker-sub">对方已无牌可选</div>';
     const foot = !sections.length ? btn('cancel', '跳过') : optional ? btn('cancel', '取消') : '';
-    return panel(title, `选择 ${t.name} 的一张牌`, body, foot);
+    // 面板内同步展示本次使用的锦囊牌面（面板遮罩会盖住中央处理区）
+    const usedCard = info.card;
+    const sub = `${usedCard ? `<span class="pick-used">${cardHtml(usedCard, { small: true })}</span>` : ''}<span>选择 ${t.name} 的一张牌</span>`;
+    return panel(title, sub, body, foot, usedCard ? 'pick-with-card' : '');
   }
 
   if (pend.mode === 'guanxing') {

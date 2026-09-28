@@ -426,6 +426,11 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
   text-shadow: 0 2px 6px #000;
 }
 .picker-sub { font-size: 12px; color: var(--ink-dim); }
+/* 选牌面板副标题含所用牌面（顺/拆）时横排对齐 */
+.picker-sub.pick-with-card {
+  display: flex; align-items: center; gap: 10px;
+}
+.picker-sub .pick-used .card { box-shadow: 0 0 0 1px rgba(168,134,74,.5); }
 .pick-sec { display: flex; flex-direction: column; gap: 6px; width: 100%; }
 .pick-label {
   font-size: 12px; color: var(--gold); letter-spacing: 2px;
