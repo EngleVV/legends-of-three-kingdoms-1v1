@@ -125,7 +125,11 @@ export async function resolveSlash(game, source, target, vcard, opts = {}) {
   for (let i = 0; i < needShan; i++) {
     const shan = await askForShan(game, target);
     if (!shan) break;
-    if (shan.vcard) discardUsed(game, shan.vcard);
+    if (shan.vcard) {
+      discardUsed(game, shan.vcard);
+      const nth = needShan > 1 ? `（第 ${i + 1}/${needShan} 张）` : '';
+      game.log(`${target.name} 打出 ${cardLabel(realsOf(shan.vcard)[0])}${shan.vcard.name !== realsOf(shan.vcard)[0].name ? ' 当【闪】' : ''}${nth}`);
+    }
     shanPlayed++;
   }
 
