@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <!-- 暗漆底：呼应牌桌背景的暗色径向渐变 -->
+    <radialGradient id="bg" cx="50%" cy="40%" r="75%">
+      <stop offset="0%" stop-color="#3d3121"/>
+      <stop offset="55%" stop-color="#251d14"/>
+      <stop offset="100%" stop-color="#120d08"/>
+    </radialGradient>
+    <!-- 鎏金字面 -->
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ffefbc"/>
+      <stop offset="45%" stop-color="#ffcf5c"/>
+      <stop offset="100%" stop-color="#b8863b"/>
+    </linearGradient>
+    <!-- 朱红刀痕 -->
+    <linearGradient id="blood" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#c04034"/>
+      <stop offset="100%" stop-color="#6d1f1a"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#000" flood-opacity="0.65"/>
+    </filter>
+  </defs>
+
+  <!-- 底 -->
+  <rect x="4" y="4" width="248" height="248" rx="52" fill="url(#bg)"/>
+  <!-- 双层描金框：外粗内细，仿 UI 面板描边 -->
+  <rect x="8" y="8" width="240" height="240" rx="48" fill="none" stroke="#5c4930" stroke-width="4"/>
+  <rect x="17" y="17" width="222" height="222" rx="41" fill="none" stroke="#d4af5f" stroke-width="2.5" opacity="0.9"/>
+
+  <!-- 朱红刀痕：贯穿右上一刀，呼应「杀」与红色花色 -->
+  <path d="M212 34
+           C 186 76, 138 132, 58 208
+           C 50 216, 40 212, 46 200
+           C 96 122, 148 70, 196 26
+           C 204 19, 217 25, 212 34 Z"
+        fill="url(#blood)" opacity="0.82"/>
+  <path d="M204 46 C 172 88, 130 136, 70 196" stroke="#ff8a70" stroke-width="2.5"
+        fill="none" opacity="0.35" stroke-linecap="round"/>
+
+  <!-- 主字：杀（楷体，鎏金） -->
+  <text x="128" y="182" text-anchor="middle" filter="url(#glow)"
+        font-family="KaiTi, STKaiti, 'Microsoft YaHei', serif"
+        font-size="156" font-weight="bold"
+        fill="url(#gold)" stroke="#4a3208" stroke-width="2">杀</text>
+
+  <!-- 角落朱印：1v1 -->
+  <g transform="rotate(8 196 200)">
+    <rect x="174" y="180" width="46" height="30" rx="5" fill="#a83a3a" stroke="#7c2320" stroke-width="1.5"/>
+    <text x="197" y="201" text-anchor="middle" font-family="'Microsoft YaHei', sans-serif"
+          font-size="15" font-weight="bold" fill="#ffe9dd">1v1</text>
+  </g>
+</svg>
