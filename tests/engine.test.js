@@ -240,3 +240,37 @@ test('乐不思蜀：判定非红桃跳过出牌阶段', async () => {
   assert.ok(a.judgeZone.length === 1);
   assert.ok(spadeTop, '牌堆应有黑桃牌');
 });
+
+// 顶牌设为「不会命中」的判定牌（非黑桃 2~9）
+function stackNonHit(g) {
+  const i = g.deck.cards.findIndex(c => c.suit === '♥');
+  g.deck.cards.unshift(g.deck.cards.splice(i, 1)[0]);
+}
+
+test('闪电：下家已有【闪电】时不移过去，判定区不会出现两张同名延时锦囊', async () => {
+  const { resolveJudgeZone } = await import('../src/core/turn.js');
+  const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
+  const [a, b] = g.players;
+  const [s1, s2] = g.deck.cards.filter(c => c.name === 'shandian');
+  g.deck.cards = g.deck.cards.filter(c => c !== s1 && c !== s2);
+  for (const p of g.players) p.hand = p.hand.filter(c => c.name !== 'wuxie');
+  a.judgeZone = [s1];
+  b.judgeZone = [s2];
+  stackNonHit(g);
+  await resolveJudgeZone(g, a);
+  assert.strictEqual(b.judgeZone.filter(c => c.name === 'shandian').length, 1);
+  assert.strictEqual(a.judgeZone.filter(c => c.name === 'shandian').length, 1);
+});
+
+test('闪电：被无懈抵消后移至下家（而非弃置）', async () => {
+  const { resolveJudgeZone } = await import('../src/core/turn.js');
+  const [wx] = buildStandardDeck().filter(c => c.name === 'wuxie');
+  const b0 = new ScriptController({ askNullify: async p => p.hand.find(c => c.name === 'wuxie') });
+  const g = mkGame('caocao', 'sunquan', new AIController(), b0);
+  const [a, b] = g.players;
+  const sd = g.deck.cards.find(c => c.name === 'shandian');
+  g.deck.cards = g.deck.cards.filter(c => c !== sd);
+  a.hand = []; b.hand = [wx]; a.judgeZone = [sd]; b.judgeZone = [];
+  await resolveJudgeZone(g, a);
+  assert.ok(b.judgeZone.some(c => c.id === sd.id), '闪电应移至下家');
+});

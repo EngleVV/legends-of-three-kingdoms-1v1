@@ -6,7 +6,7 @@ import { resolveTrick } from './nullify-chain.js';
 import { applyDamage } from './damage.js';
 
 // 判定区结算（后放置的先结算）
-async function resolveJudgeZone(game, player) {
+export async function resolveJudgeZone(game, player) {
   for (const jc of [...player.judgeZone].reverse()) {
     if (game.over) return;
     player.judgeZone = player.judgeZone.filter(c => c.id !== jc.id);
@@ -27,9 +27,23 @@ async function resolveJudgeZone(game, player) {
         },
       });
     } else if (jc.name === 'shandian') {
+      // 【闪电】判定未中或被抵消：移至下家；下家已有【闪电】则顺延（1v1 即留在自己判定区）
+      const passOn = () => {
+        const opp = game.opponentOf(player);
+        handled = true;
+        if (opp.judgeZone.some(c => c.name === 'shandian')) {
+          player.judgeZone.push(jc);
+          game.log(`${opp.name} 判定区已有【闪电】，【闪电】留在 ${player.name} 的判定区`);
+        } else {
+          opp.judgeZone.push(jc);
+          game.log(`【闪电】移至 ${opp.name} 的判定区`);
+        }
+      };
+      let applied = false;
       await resolveTrick(game, {
         card: jc, source: null, target: player, name: '闪电',
         apply: async () => {
+          applied = true;
           const jcard = await doJudge(game, player, '闪电');
           if (jcard.suit === '♠' && jcard.rank >= 2 && jcard.rank <= 9) {
             game.log('【闪电】命中！');
@@ -39,13 +53,11 @@ async function resolveJudgeZone(game, player) {
             await applyDamage(game, null, player, 3, jc, 'thunder');
             game.flushPending();
           } else {
-            const opp = game.opponentOf(player);
-            opp.judgeZone.push(jc);
-            handled = true;
-            game.log(`【闪电】移至 ${opp.name} 的判定区`);
+            passOn();
           }
         },
       });
+      if (!applied && !game.over) passOn();
     }
 
     // 被无懈抵消或已结算完毕的判定牌进弃牌堆
