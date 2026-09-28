@@ -272,6 +272,7 @@ export async function resolveCardUse(game, player, action) {
   }
 
   player.removeFromHand(reals);
+  game.lastGive = null; // 新的出牌开始，清除上一次的交付提示
   // 记录最近一次出牌，供 UI 中央处理区展示
   game.lastAction = { player, card, targets: [...targets] };
   // 战报：谁、对谁、使用了哪张牌（杀/决斗在各自结算中记录，装备记「装备了」）
@@ -486,6 +487,8 @@ export async function useSkill(game, player, action) {
     const opp = game.opponentOf(player);
     opp.hand.push(...cards);
     player.flags.rendeGiven += cards.length;
+    // 动画提示：这批牌是「交给」对方，UI 幽灵飞向对方而非弃牌堆
+    game.lastGive = { ids: cards.map(c => c.id), to: opp.seat };
     game.log(`${player.name} 发动【仁德】，将 ${cards.map(cardLabel).join('、')} 交给 ${opp.name}`);
     if (player.flags.rendeGiven >= 2 && !player.flags.rendeHealed) {
       player.flags.rendeHealed = true;

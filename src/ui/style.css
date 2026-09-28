@@ -261,6 +261,32 @@ button.primary {
 #log .log-card.red { color: #ff6b5a; }
 #log .log-card.black { color: #f0e2c4; }
 
+/* ---------- 流程动画特效层 ---------- */
+#fx-layer {
+  position: fixed; inset: 0; z-index: 200;
+  pointer-events: none; overflow: hidden;
+}
+/* 飞行幽灵：重绘前卡牌的残影，飞向弃牌堆/交付对象 */
+.fx-ghost { position: fixed; z-index: 201; pointer-events: none; }
+.fx-ghost .card { width: 100%; height: 100%; }
+/* 伤害/回复飘字 */
+.fx-float {
+  position: fixed; z-index: 202; pointer-events: none;
+  font-size: 30px; font-weight: bold; font-family: Georgia, serif;
+  text-shadow: 0 0 10px rgba(0,0,0,.8), 0 2px 4px rgba(0,0,0,.9);
+}
+/* 回合切换横幅 */
+.fx-turn {
+  position: fixed; z-index: 202; pointer-events: none;
+  transform: translate(-50%, -50%);
+  font-size: 30px; letter-spacing: 8px; color: var(--gold-lit);
+  text-shadow: 0 0 24px rgba(255,207,92,.55), 0 2px 6px rgba(0,0,0,.9);
+  white-space: nowrap;
+}
+/* 阵亡：武将牌整体褪色 */
+.hero-plate { transition: filter .8s, opacity .8s; }
+.hero-plate.died { filter: grayscale(.95) brightness(.6); opacity: .65; }
+
 /* ---------- 卡牌（参考官方牌面：左上角点数花色 / 中央竖排牌名 / 底部类别标识） ---------- */
 .card {
   width: 82px; height: 116px; border-radius: 7px;

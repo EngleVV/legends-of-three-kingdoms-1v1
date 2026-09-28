@@ -58,7 +58,7 @@ function equipHtml(p, pick = null) {
     const opts = c && pick
       ? { small: true, selectable: true, selected: pick.has(c.id) }
       : { small: true };
-    return `<div class="slot">
+    return `<div class="slot" data-zone="equip:${slot}">
       <div class="zone-label">${SLOT_LABEL[slot]}</div>
       <div class="mini-cards">${c ? cardHtml(c, opts) : '<span class="slot-ph">—</span>'}</div>
     </div>`;
@@ -67,7 +67,7 @@ function equipHtml(p, pick = null) {
 
 function judgeHtml(p) {
   const cards = p.judgeZone.map(c => cardHtml(c, { small: true })).join('');
-  return `<div class="zone judge">
+  return `<div class="zone judge" data-zone="judge">
     <div class="zone-label">判定区</div>
     <div class="mini-cards">${cards || '<span class="slot-ph">—</span>'}</div>
   </div>`;
@@ -84,9 +84,9 @@ const KINGDOM_CLASS = { 蜀: 'k-shu', 魏: 'k-wei', 吴: 'k-wu', 群: 'k-qun' };
 function playerZoneHtml(game, p, isSelf, equipPick = null) {
   const skillNames = p.hero.skills.map(s => SKILL_CNAME[s] || s).join(' · ');
   const isTurn = game.players[game.currentTurnSeat ?? 0] === p;
-  // 头像图缺失时自行移除，回落为纯文字武将牌（不留白块）
+  // 头像图缺失时自行移除，回落为纯文字武将牌（不留白块）；阵亡武将牌整体变灰
   return `
-    <div class="hero-plate${isTurn ? ' acting' : ''}">
+    <div class="hero-plate${isTurn ? ' acting' : ''}${p.alive ? '' : ' died'}">
       <div class="avatar" data-seat="${p.seat}">
         <img class="portrait" src="assets/heroes/${p.hero.id}.png" alt="" onerror="this.remove()">
         <span class="kingdom ${KINGDOM_CLASS[p.hero.kingdom] || ''}">${p.hero.kingdom}</span>
@@ -469,7 +469,7 @@ function pickerHtml(game, ui) {
       </div>`;
     }).join('');
     const turnName = mine ? '请选择一张牌' : '等待其他角色选择…';
-    return panel('五谷丰登', turnName, `<div class="pick-row">${cards}</div>`);
+    return panel('五谷丰登', turnName, `<div class="pick-row" data-zone="pick">${cards}</div>`);
   }
   if (!pend) return '';
 
@@ -492,7 +492,7 @@ function pickerHtml(game, ui) {
     }
     // 无懈链期间对方可能把牌打光：无牌可选时允许跳过，避免死局
     const body = sections.length
-      ? sections.map(([label, html]) => `<div class="pick-sec"><div class="pick-label">${label}</div><div class="pick-row">${html}</div></div>`).join('')
+      ? sections.map(([label, html]) => `<div class="pick-sec"><div class="pick-label">${label}</div><div class="pick-row" data-zone="pick">${html}</div></div>`).join('')
       : '<div class="picker-sub">对方已无牌可选</div>';
     const foot = !sections.length ? btn('cancel', '跳过') : optional ? btn('cancel', '取消') : '';
     // 面板内同步展示本次使用的锦囊牌面（面板遮罩会盖住中央处理区）
@@ -506,7 +506,7 @@ function pickerHtml(game, ui) {
     const row = (key, label, cards) => `
       <div class="pick-sec">
         <div class="pick-label">${label}<span class="pick-n">${cards.length}</span></div>
-        <div class="pick-row gx-row" data-gx-row="${key}">
+        <div class="pick-row gx-row" data-zone="pick" data-gx-row="${key}">
           ${cards.map((c, i) => `<div class="pick-item gx-item" data-card-id="${c.id}">
             ${cardHtml(c, { selectable: true })}
             ${key === 'top' ? `<span class="order">${i + 1}</span>` : ''}

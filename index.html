@@ -15,11 +15,11 @@
       <div id="opp-row" class="player-row"></div>
       <div id="center-row">
         <div id="deck-info"></div>
-        <div id="field"></div>
+        <div id="field" data-zone="field"></div>
       </div>
       <div id="self-row" class="player-row is-self"></div>
       <div id="banner"></div>
-      <div id="hand-row"></div>
+      <div id="hand-row" data-zone="hand"></div>
       <!-- 选牌面板（顺/拆/反馈/麒麟弓、五谷丰登、观星），浮于牌桌中央 -->
       <div id="picker" class="hidden"></div>
     </div>
@@ -29,6 +29,8 @@
       <div id="log"></div>
     </aside>
   </div>
+  <!-- 全局特效层：卡牌飞行幽灵 / 伤害飘字 / 回合横幅（不拦截点击） -->
+  <div id="fx-layer"></div>
   <script type="module" src="src/ui/app.js"></script>
 </body>
 </html>

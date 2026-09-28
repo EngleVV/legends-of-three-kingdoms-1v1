@@ -6,6 +6,7 @@ import { HEROES, HERO_LIST } from '../data/heroes.js';
 import { canUseInPlayPhase, canUseAsSha } from '../data/cards.js';
 import { makeVirtual } from '../core/card-use.js';
 import { renderGame, renderSetup, renderResult, isOppTargetable, directUseAction } from './render.js';
+import { snapshotFx, playFx } from './animate.js';
 
 let ui = null;
 let game = null;
@@ -47,8 +48,10 @@ function render() {
     pend.selected = pend.selected.filter(c => held(c.id));
     if (!pend.selected.length) pend.asSha = false;
   }
+  snapshotFx(game);          // 重绘前：记录卡牌/体力/回合状态，供动画差值
   renderGame(game, ui, logs);
   if (drag?.active) markDragging();
+  playFx(game);              // 重绘后：卡牌飞行 / 飘字 / 震动 / 回合横幅
   if (game.over && !document.getElementById('overlay')) renderResult(game);
 }
 
