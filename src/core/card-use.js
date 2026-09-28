@@ -1,6 +1,6 @@
 // 出牌/用牌结算
 import {
-  cardLabel, isRed, canTarget, CARD_NAME,
+  cardLabel, isRed, canTarget,
   canUseInPlayPhase, canUseZhangbaSha, canRespondWith, shaLeftOf,
   canUseCardAs, canZhangbaPair,
 } from '../data/cards.js';
@@ -8,7 +8,7 @@ import { hasSkill } from '../data/heroes.js';
 import { applyDamage } from './damage.js';
 import { resolveTrick } from './nullify-chain.js';
 import { doJudge } from './judge.js';
-import { handCardOf, realsOf } from './util.js';
+import { handCardOf, realsOf, useLabel } from './util.js';
 
 // ---------- 虚拟牌（武圣转化 / 丈八蛇矛双牌） ----------
 // 虚拟牌可由一张或多张实体牌组成，实体牌统一放在 reals 数组里（real 保留为首张，便于日志/兼容）。
@@ -90,12 +90,13 @@ async function askForShan(game, player, reason = 'sha') {
   if (player.equip.armor?.name === 'bagua') {
     const invoke = await game.ask(player, 'askSkillInvoke', 'bagua', {});
     if (invoke) {
+      game.log(`${player.name} 发动【八卦阵】`);
       const jc = await doJudge(game, player, '八卦阵');
       if (isRed(jc)) {
-        game.log(`${player.name} 八卦阵判定生效，视为打出【闪】`);
+        game.log(`${player.name} 八卦阵判定生效（${cardLabel(jc)} 为红色），视为打出【闪】`);
         return { bagua: true };
       }
-      game.log('八卦阵判定未生效');
+      game.log(`${player.name} 的【八卦阵】判定未生效（${cardLabel(jc)} 为黑色）`);
     }
   }
   const v = await askResponse(game, player, { type: 'shan', reason });
@@ -109,10 +110,10 @@ export async function resolveSlash(game, source, target, vcard, opts = {}) {
   const blockedRes = await game.emit('becomeTarget', { card: vcard, source, target });
   if (game.blocked(blockedRes)) {
     discardUsed(game, vcard);
-    game.log(`${target.name} 无法被指定为目标`);
+    game.log(`${source.name} 对 ${target.name} 使用 ${useLabel(vcard)}，${target.name} 无法被指定为目标`);
     return;
   }
-  game.log(`${source.name} 对 ${target.name} 使用【杀】${vcard.composite ? '（丈八蛇矛）' : ''}`);
+  game.log(`${source.name} 对 ${target.name} 使用 ${useLabel(vcard)}`);
 
   // 雌雄双股剑：指定异性目标时触发
   if (source.equip.weapon?.name === 'cixiong' && !opts.isChase
@@ -128,7 +129,7 @@ export async function resolveSlash(game, source, target, vcard, opts = {}) {
     if (shan.vcard) {
       discardUsed(game, shan.vcard);
       const nth = needShan > 1 ? `（第 ${i + 1}/${needShan} 张）` : '';
-      game.log(`${target.name} 打出 ${cardLabel(realsOf(shan.vcard)[0])}${shan.vcard.name !== realsOf(shan.vcard)[0].name ? ' 当【闪】' : ''}${nth}`);
+      game.log(`${target.name} 打出 ${useLabel(shan.vcard)}${nth}`);
     }
     shanPlayed++;
   }
@@ -142,7 +143,7 @@ export async function resolveSlash(game, source, target, vcard, opts = {}) {
     if (give && give.length === 2) {
       source.removeFromHand(give);
       game.discardCards(give);
-      game.log(`${source.name} 发动【贯石斧】弃 2 张牌，强制命中`);
+      game.log(`${source.name} 发动【贯石斧】，弃置 ${give.map(cardLabel).join('、')}，强制命中`);
       hit = true;
     }
   }
@@ -159,6 +160,7 @@ export async function resolveSlash(game, source, target, vcard, opts = {}) {
         });
         if (pick && pick.length === 1) {
           const slot = pick[0];
+          game.log(`${source.name} 发动【麒麟弓】`);
           await game.loseEquip(target, slot);
         }
       }
@@ -170,6 +172,7 @@ export async function resolveSlash(game, source, target, vcard, opts = {}) {
       const chase = await askResponse(game, source, { type: 'sha', reason: 'qinglong', info: { target } });
       if (chase) {
         source.removeFromHand(realsOf(chase));
+        game.log(`${source.name} 发动【青龙偃月刀】`);
         await resolveSlash(game, source, target, chase, { isChase: true });
       }
     }
@@ -187,12 +190,12 @@ async function cixiongEffect(game, source, target) {
     if (give && give.length === 1) {
       target.removeFromHand(give);
       game.discardCards(give);
-      game.log(`${target.name} 弃 1 张手牌`);
+      game.log(`${target.name} 弃置 ${cardLabel(give[0])}`);
       return;
     }
   }
+  game.log(`${target.name} 不弃牌`);
   game.drawCards(source, 1);
-  game.log(`${target.name} 不弃牌，${source.name} 摸 1 张牌`);
 }
 
 // ---------- 决斗 ----------
@@ -200,10 +203,10 @@ export async function resolveJuedou(game, source, target, vcard) {
   const blockedRes = await game.emit('becomeTarget', { card: vcard, source, target });
   if (game.blocked(blockedRes)) {
     discardUsed(game, vcard);
-    game.log(`${target.name} 无法被指定为目标`);
+    game.log(`${source.name} 对 ${target.name} 使用 ${useLabel(vcard)}，${target.name} 无法被指定为目标`);
     return;
   }
-  game.log(`${source.name} 对 ${target.name} 使用【决斗】`);
+  game.log(`${source.name} 对 ${target.name} 使用 ${useLabel(vcard)}`);
   discardUsed(game, vcard);
   await resolveTrick(game, {
     card: vcard.real, source, target, name: '决斗',
@@ -220,6 +223,7 @@ export async function resolveJuedou(game, source, target, vcard) {
           current.removeFromHand(realsOf(v));
           game.discardCards(realsOf(v), { pending: true });
           played++;
+          game.log(`${current.name} 打出 ${useLabel(v)}${need > 1 ? `（第 ${played}/${need} 张）` : ''}`);
         }
         if (played < need) {
           await applyDamage(game, game.opponentOf(current), current, 1, vcard);
@@ -245,7 +249,7 @@ export async function resolveCardUse(game, player, action) {
   const reals = realsOf(card);
 
   const reject = why => {
-    game.log(`${player.name} 的【${CARD_NAME[card.name] || card.name}】${why}，取消使用`);
+    game.log(`${player.name} 使用 ${useLabel(card)} 失败（${why}），取消使用`);
   };
 
   // 1) 实体牌必须都在手牌中且互不相同
@@ -270,6 +274,11 @@ export async function resolveCardUse(game, player, action) {
   player.removeFromHand(reals);
   // 记录最近一次出牌，供 UI 中央处理区展示
   game.lastAction = { player, card, targets: [...targets] };
+  // 战报：谁、对谁、使用了哪张牌（杀/决斗在各自结算中记录，装备记「装备了」）
+  if (!['sha', 'juedou'].includes(card.name) && card.type !== 'equip') {
+    const to = targets.length ? `对 ${targets.map(t => t.name).join('、')} ` : '';
+    game.log(`${player.name} ${to}使用 ${useLabel(card)}`);
+  }
   game.notify();
 
   switch (card.name) {
@@ -281,7 +290,7 @@ export async function resolveCardUse(game, player, action) {
     }
     case 'tao': {
       if (player.hp < player.maxHp) game.heal(player, 1);
-      else game.log(`${player.name} 体力已满，【桃】无效`);
+      else game.log(`${player.name} 体力已满，${cardLabel(card.real || card)} 无效`);
       game.discardCards([card.real || card]);
       break;
     }
@@ -310,9 +319,8 @@ export async function resolveCardUse(game, player, action) {
           const c = game.takeCardFromArea(target, pick[0]);
           if (!c) return;
           player.hand.push(c);
-          game.log(pick[0] === 'hand'
-            ? `${player.name} 获得了 ${target.name} 的一张手牌`
-            : `${player.name} 获得了 ${cardLabel(c)}`);
+          // 1v1 中获得方或失去方必为玩家本人，这张牌玩家本就可知，故写明
+          game.log(`${player.name} 获得了 ${target.name} 的${pick[0] === 'hand' ? '手牌' : ''} ${cardLabel(c)}`);
         },
       });
       break;
@@ -330,9 +338,7 @@ export async function resolveCardUse(game, player, action) {
           const c = game.takeCardFromArea(target, pick[0]);
           if (!c) return;
           game.discardCards([c]);
-          game.log(pick[0] === 'hand'
-            ? `${player.name} 弃置了 ${target.name} 的一张手牌`
-            : `${player.name} 弃置了 ${cardLabel(c)}`);
+          game.log(`${player.name} 弃置了 ${target.name} 的${pick[0] === 'hand' ? '手牌' : ''} ${cardLabel(c)}`);
         },
       });
       break;
@@ -347,7 +353,7 @@ export async function resolveCardUse(game, player, action) {
             if (v) {
                 target.removeFromHand(realsOf(v));
                 game.discardCards(realsOf(v));
-                game.log(`${target.name} 打出【杀】响应`);
+                game.log(`${target.name} 打出 ${useLabel(v)}`);
             } else {
               await applyDamage(game, player, target, 1, card.real || card);
             }
@@ -364,8 +370,10 @@ export async function resolveCardUse(game, player, action) {
           apply: async () => {
             const shan = await askForShan(game, target, 'wanjian');
             if (shan) {
-              if (shan.vcard) discardUsed(game, shan.vcard);
-              game.log(`${target.name} 打出【闪】响应`);
+              if (shan.vcard) {
+                discardUsed(game, shan.vcard);
+                game.log(`${target.name} 打出 ${useLabel(shan.vcard)}`);
+              }
             } else {
               await applyDamage(game, player, target, 1, card.real || card);
             }
@@ -431,8 +439,8 @@ export async function resolveCardUse(game, player, action) {
             target.removeFromHand(realsOf(v));
             await resolveSlash(game, target, victim, v);
           } else {
-            game.log(`${target.name} 不出【杀】，武器归 ${player.name}`);
             const w = target.equip.weapon;
+            game.log(`${target.name} 不出【杀】，${player.name} 获得其武器 ${cardLabel(w)}`);
             target.equip.weapon = null;
             player.hand.push(w);
           }
@@ -443,12 +451,10 @@ export async function resolveCardUse(game, player, action) {
     case 'le': {
       const target = targets[0];
       target.judgeZone.push(card);
-      game.log(`${player.name} 对 ${target.name} 使用【乐不思蜀】`);
       break;
     }
     case 'shandian': {
       player.judgeZone.push(card);
-      game.log(`${player.name} 使用【闪电】`);
       break;
     }
     case 'shan':

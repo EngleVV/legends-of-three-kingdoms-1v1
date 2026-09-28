@@ -146,7 +146,7 @@ export class Game {
     if (old) this.deck.discard([old]);
     player.removeFromHand([card]);
     player.equip[slot] = card;
-    this.log(`${player.name} 装备了 ${cardLabel(card)}`);
+    this.log(`${player.name} 装备了 ${cardLabel(card)}${old ? `（替换 ${cardLabel(old)}）` : ''}`);
   }
 
   async loseEquip(target, slot) {

@@ -19,10 +19,10 @@ export async function resolveJudgeZone(game, player) {
         apply: async () => {
           const jcard = await doJudge(game, player, '乐不思蜀');
           if (jcard.suit === '♥') {
-            game.log('【乐不思蜀】判定为红桃，失效');
+            game.log(`【乐不思蜀】判定为 ${cardLabel(jcard)}（红桃），失效`);
           } else {
             player.flags.skipPlay = true;
-            game.log(`【乐不思蜀】判定生效，${player.name} 跳过出牌阶段`);
+            game.log(`【乐不思蜀】判定为 ${cardLabel(jcard)}（非红桃），生效，${player.name} 跳过出牌阶段`);
           }
         },
       });
@@ -46,7 +46,7 @@ export async function resolveJudgeZone(game, player) {
           applied = true;
           const jcard = await doJudge(game, player, '闪电');
           if (jcard.suit === '♠' && jcard.rank >= 2 && jcard.rank <= 9) {
-            game.log('【闪电】命中！');
+            game.log(`【闪电】判定为 ${cardLabel(jcard)}（黑桃2~9），命中！`);
             // 先挂起这张【闪电】，使奸雄能获得"造成伤害的牌"
             handled = true;
             game.discardCards([jc], { pending: true });

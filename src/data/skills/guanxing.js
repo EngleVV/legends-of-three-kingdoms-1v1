@@ -1,5 +1,7 @@
 // 诸葛亮·观星：准备阶段，观看牌堆顶 X 张牌（X=存活角色数，至多 5），
 // 然后以任意顺序置于牌堆顶或牌堆底。
+import { cardLabel } from '../../data/cards.js';
+
 export default {
   id: 'guanxing',
   hero: 'zhugeliang',
@@ -27,7 +29,9 @@ export default {
 
         if (top.length) game.deck.putOnTop(top);
         if (toBottom.length) game.deck.putOnBottom(toBottom);
-        game.log(`${owner.name} 发动【观星】（${top.length} 张置于牌堆顶，${toBottom.length} 张置于牌堆底）`);
+        // 战报写明每张牌的去向（数组顺序即摸牌顺序）
+        const label = cs => cs.map(cardLabel).join('、');
+        game.log(`${owner.name} 发动【观星】${top.length ? `，置于牌堆顶：${label(top)}` : ''}${toBottom.length ? `，置于牌堆底：${label(toBottom)}` : ''}`);
         return null;
       },
     },

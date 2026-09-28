@@ -2,7 +2,7 @@
 // effect: { card, source, target, name, isNullify, apply: async ()=>{} }
 // 奇数次无懈 → 效果无效；偶数次 → 生效
 import { handCardOf } from './util.js';
-import { canUseCardAs } from '../data/cards.js';
+import { canUseCardAs, cardLabel } from '../data/cards.js';
 
 async function askNullifyChain(game, effect) {
   // 询问顺序：从当前回合角色开始，按座位顺序
@@ -17,7 +17,11 @@ async function askNullifyChain(game, effect) {
     if (card) {
       p.removeFromHand([card]);
       game.discardCards([card]);
-      game.log(`${p.name} 使用【无懈可击】${effect.isNullify ? '抵消前面的无懈可击' : `抵消【${effect.name}】`}`);
+      // 写明抵消的是谁对谁的哪张锦囊
+      const what = effect.isNullify
+        ? `${effect.source.name} 的【无懈可击】`
+        : `${effect.source ? `${effect.source.name} 对 ` : ''}${effect.target.name} 的【${effect.name}】`;
+      game.log(`${p.name} 使用 ${cardLabel(card)}，抵消 ${what}`);
       // 无懈本身也可被无懈；若该无懈又被无懈 → 原效果生效
       const counter = await askNullifyChain(game, {
         ...effect,

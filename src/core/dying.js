@@ -1,6 +1,6 @@
 // 濒死求桃：从当前回合玩家开始轮流询问，出桃 +1 血，直到 >0 或无人再出
 import { handCardOf } from './util.js';
-import { canUseCardAs } from '../data/cards.js';
+import { canUseCardAs, cardLabel } from '../data/cards.js';
 
 export async function handleDying(game, target) {
   let guard = 0;
@@ -19,7 +19,7 @@ export async function handleDying(game, target) {
         p.removeFromHand([card]);
         game.discardCards([card]);
         target.hp += 1;
-        game.log(`${p.name} 对 ${target.name} 使用【桃】，${target.name} 回复至 ${target.hp} 血`);
+        game.log(`${p.name} 对 ${p === target ? '自己' : target.name} 使用 ${cardLabel(card)}，${target.name} 回复至 ${target.hp} 血`);
         saved = true;
       }
     }

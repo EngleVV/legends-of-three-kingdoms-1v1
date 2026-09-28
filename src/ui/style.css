@@ -257,6 +257,9 @@ button.primary {
 }
 #log .skill { color: #9fd0a0; }
 #log .damage { color: #ff9a7a; }
+#log .log-card { font-weight: bold; white-space: nowrap; }
+#log .log-card.red { color: #ff6b5a; }
+#log .log-card.black { color: #f0e2c4; }
 
 /* ---------- 卡牌（参考官方牌面：左上角点数花色 / 中央竖排牌名 / 底部类别标识） ---------- */
 .card {

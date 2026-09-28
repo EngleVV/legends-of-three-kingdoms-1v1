@@ -22,9 +22,8 @@ export default {
         const c = game.takeCardFromArea(ctx.source, zone);
         if (c) {
           owner.hand.push(c);
-          game.log(zone === 'hand'
-            ? `${owner.name} 获得了 ${ctx.source.name} 的一张手牌`
-            : `${owner.name} 获得了 ${ctx.source.name} 的 ${cardLabel(c)}`);
+          // 1v1 中获得方或失去方必为玩家本人，这张牌玩家本就可知，故写明
+          game.log(`${owner.name} 获得了 ${ctx.source.name} 的${zone === 'hand' ? '手牌' : ''} ${cardLabel(c)}`);
         }
         return null;
       },

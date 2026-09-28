@@ -17,12 +17,19 @@ function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// 战报中的牌名按花色着色（官方战报红色花色为红字），便于一眼看出出了什么牌
+const CARD_RE = /(黑桃|梅花|红桃|方片)(10|[2-9AJQK])【([^】]+)】/g;
+function colorCards(html) {
+  return html.replace(CARD_RE, (m, suit) =>
+    `<span class="log-card ${suit === '红桃' || suit === '方片' ? 'red' : 'black'}">${m}</span>`);
+}
+
 function logHtml(msg) {
   let cls = 'log-line';
   if (msg.startsWith('────')) cls += ' turn';
   else if (msg.includes('发动')) cls += ' skill';
-  else if (msg.includes('伤害') || msg.includes('使用【杀】') || msg.includes('命中') || msg.includes('阵亡')) cls += ' damage';
-  return `<div class="${cls}">${escapeHtml(msg)}</div>`;
+  else if (msg.includes('伤害') || msg.includes('命中') || msg.includes('阵亡')) cls += ' damage';
+  return `<div class="${cls}">${colorCards(escapeHtml(msg))}</div>`;
 }
 
 // ---------- 渲染 ----------
