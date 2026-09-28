@@ -146,12 +146,10 @@ function respondCandidates(p, req) {
   return direct;
 }
 
-// ---------- 主渲染 ----------
-export function renderGame(game, ui, logs) {
-  const [me, opp] = game.players;
-  const pend = ui.pending;
-
-  const oppTargetable = pend?.mode === 'play' && pend.skillId !== 'zhiheng' && (
+// 当前选择是否可以（且需要）指定对方为目标
+export function isOppTargetable(game, pend) {
+  const me = game.players[0];
+  return !!(pend?.mode === 'play' && pend.skillId !== 'zhiheng' && (
     (pend.skillId === 'rende' && pend.selected.length > 0) ||
     // 丈八蛇矛：两张手牌合成【杀】需指定目标
     (pend.skillId === null && pend.selected.length === 2) ||
@@ -163,7 +161,40 @@ export function renderGame(game, ui, logs) {
           && canUseAsSha(me, pend.selected[0])
           && canUseInPlayPhase(game, me, pend.selected[0], 'sha'))
     ))
-  );
+  ));
+}
+
+// 当前选择无需目标即可直接生效时，返回对应的横幅动作；否则返回 null
+export function directUseAction(game, pend) {
+  if (!pend) return null;
+  const me = game.players[0];
+  const n = pend.selected.length;
+  switch (pend.mode) {
+    case 'play': {
+      if (pend.skillId === 'zhiheng') return n > 0 ? 'confirm-zhiheng' : null;
+      if (pend.skillId !== null || n !== 1 || pend.asSha) return null;
+      const sel = pend.selected[0];
+      return canUseInPlayPhase(game, me, sel) && !NEED_TARGET.includes(sel.name) ? 'confirm-play' : null;
+    }
+    case 'respond': {
+      const req = pend.opts.req;
+      const composite = n === 2 && req.type === 'sha' && canZhangbaPair(me);
+      const single = n === 1 && canUseCardAs(me, pend.selected[0], req.type);
+      return single || composite ? 'confirm-respond' : null;
+    }
+    case 'pick-hand': return n === pend.opts.opts.count ? 'confirm-pick' : null;
+    case 'peach': return n === 1 ? 'confirm-peach' : null;
+    case 'nullify': return n === 1 ? 'confirm-nullify' : null;
+    case 'judge-replace': return n === 1 ? 'confirm-judge-replace' : null;
+  }
+  return null;
+}
+
+// ---------- 主渲染 ----------
+export function renderGame(game, ui, logs) {
+  const [me, opp] = game.players;
+  const pend = ui.pending;
+  const oppTargetable = isOppTargetable(game, pend);
 
   document.getElementById('opp-row').innerHTML = playerZoneHtml(game, opp, false);
   document.getElementById('opp-row').classList.toggle('targetable', !!oppTargetable);
@@ -218,6 +249,7 @@ export function renderGame(game, ui, logs) {
 
   // 横幅
   document.getElementById('banner').innerHTML = bannerHtml(game, ui);
+  renderPicker(game, ui);
 }
 
 // ---------- 中央处理区 ----------
@@ -281,10 +313,10 @@ function bannerHtml(game, ui) {
       } else {
         const sel = pend.selected[0];
         prompt = '出牌阶段';
-        hint = rangeInfoHtml(game);
+        hint = `${rangeInfoHtml(game)} · 可拖动手牌出牌`;
         if (pend.selected.length === 2) {
           // 丈八蛇矛：两张手牌合成【杀】，需指定目标
-          prompt = '【丈八蛇矛】将两张手牌当【杀】，请点击对方头像为目标';
+          prompt = '【丈八蛇矛】将两张手牌当【杀】，拖到对方武将或点击其头像为目标';
           buttons = btn('cancel-skill', '取消选择');
         } else if (sel) {
           const selfOk = canUseInPlayPhase(game, me, sel);
@@ -294,14 +326,14 @@ function bannerHtml(game, ui) {
 
           if (pend.asSha || (!selfOk && asShaOk)) {
             // 武圣：以【杀】名义使用，需指定目标
-            prompt = `【武圣】将 ${cname} 当【杀】使用，请点击对方头像为目标`;
+            prompt = `【武圣】将 ${cname} 当【杀】使用，拖到对方武将或点击其头像为目标`;
             buttons = btn('cancel-skill', '取消选择');
           } else if (!selfOk) {
             // 只能作为丈八蛇矛的合成材料（如【闪】【无懈可击】）
             prompt = `已选【${cname}】，请再选一张手牌组成【杀】`;
             buttons = btn('cancel-skill', '取消选择');
           } else if (NEED_TARGET.includes(sel.name)) {
-            prompt = `已选【${cname}】，请点击对方头像为目标`;
+            prompt = `已选【${cname}】，拖到对方武将或点击其头像为目标`;
             buttons = (asShaOk ? btn('use-as-sha', '当【杀】使用') : '') + btn('cancel-skill', '取消选择');
           } else {
             prompt = `使用【${cname}】？`;
@@ -390,37 +422,106 @@ function bannerHtml(game, ui) {
     case 'pick-zone': {
       const { from, reason, info } = pend.opts.opts;
       const t = info?.target;
-      prompt = reason === 'qilin' ? '【麒麟弓】弃置对方一匹马' : `选择 ${t ? t.name : '对方'} 的一张牌`;
-      const zones = from === 'horse'
-        ? (t.equip['horse+'] ? ['horse+'] : []).concat(t.equip['horse-'] ? ['horse-'] : [])
-        : [...(t.hand.length ? ['hand'] : []), ...(t.equip.weapon ? ['weapon'] : []), ...(t.equip.armor ? ['armor'] : []),
-           ...t.judgeZone.map(c => c.name), ...(t.equip['horse+'] ? ['horse+'] : []), ...(t.equip['horse-'] ? ['horse-'] : [])];
-      const zoneLabel = z => z === 'hand' ? '手牌（随机）'
-        : SLOT_LABEL[z] || (t.judgeZone.some(c => c.name === z) ? CARD_NAME[z] : z);
-      // 无懈链期间对方可能把牌打光：无区可选时允许跳过，避免死局
-      const fallback = zones.length === 0
-        ? btn('cancel', '无牌可选，跳过') 
-        : zones.map(z => btn(`zone:${z}`, zoneLabel(z))).join('') +
-          (pend.opts.opts.optional ? btn('cancel', '取消') : '');
-      buttons = fallback;
+      const title = { shunshou: '顺手牵羊', guohe: '过河拆桥', fankui: '反馈', qilin: '麒麟弓' }[reason];
+      prompt = from === 'horse'
+        ? `【${title}】选择 ${t.name} 的一匹坐骑弃置`
+        : `【${title || '选牌'}】选择 ${t ? t.name : '对方'} 的一张牌${reason === 'guohe' ? '弃置' : '获得'}`;
+      hint = '在弹出的面板中点击一张牌';
       break;
     }
     case 'pick-wugu': {
-      prompt = '【五谷丰登】选择一张牌';
-      buttons = pend.opts.opts.info.candidates.map(c => cardHtml(c, { small: true, selectable: true })).join('');
+      prompt = '【五谷丰登】请选择一张牌';
+      hint = '在弹出的面板中点击一张牌';
       break;
     }
     case 'guanxing': {
-      const rest = pend.opts.cards.filter(c => !pend.seq.some(s => s.id === c.id));
-      prompt = '【观星】点击牌置于牌堆顶（先点的最先摸到），未点击的沉入牌堆底';
-      hint = `牌堆顶 ${pend.seq.length} 张 / 沉底 ${rest.length} 张`;
-      buttons = pend.seq.map(c => cardHtml(c, { small: true, selected: true })).join('') +
-        rest.map(c => cardHtml(c, { small: true, selectable: true })).join('') +
-        btn('confirm-guanxing', '确定', { primary: true });
+      prompt = '【观星】调整牌堆顶/牌堆底的牌';
+      hint = '拖动牌调整顺序与位置，或点击在两行之间切换';
       break;
     }
   }
   return `<span class="prompt">${prompt}</span>${hint ? `<span class="hint">${hint}</span>` : ''}<span style="flex:1"></span>${buttons}`;
+}
+
+// ---------- 选牌面板（官方样式：顺/拆/反馈/麒麟弓、五谷丰登、观星） ----------
+function pickerHtml(game, ui) {
+  const pend = ui.pending;
+  const me = game.players[0];
+  const panel = (title, sub, body, foot = '') => `
+    <div class="picker-panel">
+      <div class="picker-title">${title}</div>
+      ${sub ? `<div class="picker-sub">${sub}</div>` : ''}
+      ${body}
+      ${foot ? `<div class="picker-foot">${foot}</div>` : ''}
+    </div>`;
+  const btn = (action, label, primary = false) =>
+    `<button data-action="${action}"${primary ? ' class="primary"' : ''}>${label}</button>`;
+
+  // 五谷丰登：整个结算过程中都展示亮出的牌，已选走的标注获得者
+  if (game.wugu) {
+    const mine = pend?.mode === 'pick-wugu';
+    const cards = game.wugu.cards.map(c => {
+      const who = game.wugu.taken[c.id];
+      return `<div class="pick-item${who ? ' taken' : ''}"${mine && !who ? ` data-action="wugu:${c.id}"` : ''}>
+        ${cardHtml(c, { selectable: mine && !who })}
+        ${who ? `<span class="taker">${who}</span>` : ''}
+      </div>`;
+    }).join('');
+    const turnName = mine ? '请选择一张牌' : '等待其他角色选择…';
+    return panel('五谷丰登', turnName, `<div class="pick-row">${cards}</div>`);
+  }
+  if (!pend) return '';
+
+  if (pend.mode === 'pick-zone') {
+    const { from, reason, info, optional } = pend.opts.opts;
+    const t = info.target;
+    const title = { shunshou: '顺手牵羊', guohe: '过河拆桥', fankui: '反馈', qilin: '麒麟弓' }[reason] || '选择一张牌';
+    const item = (zone, inner) => `<div class="pick-item" data-action="zone:${zone}">${inner}</div>`;
+    const sections = [];
+    if (from !== 'horse' && t.hand.length) {
+      // 手牌背面朝上，点任意一张即随机获得/弃置其一
+      const backs = t.hand.map(() => item('hand', '<i class="cardback big"></i>')).join('');
+      sections.push(['手牌区', backs]);
+    }
+    const slots = from === 'horse' ? ['horse+', 'horse-'] : EQUIP_SLOTS;
+    const equips = slots.filter(s => t.equip[s]).map(s => item(s, cardHtml(t.equip[s], { selectable: true }))).join('');
+    if (equips) sections.push(['装备区', equips]);
+    if (from !== 'horse' && t.judgeZone.length) {
+      sections.push(['判定区', t.judgeZone.map(c => item(c.name, cardHtml(c, { selectable: true }))).join('')]);
+    }
+    // 无懈链期间对方可能把牌打光：无牌可选时允许跳过，避免死局
+    const body = sections.length
+      ? sections.map(([label, html]) => `<div class="pick-sec"><div class="pick-label">${label}</div><div class="pick-row">${html}</div></div>`).join('')
+      : '<div class="picker-sub">对方已无牌可选</div>';
+    const foot = !sections.length ? btn('cancel', '跳过') : optional ? btn('cancel', '取消') : '';
+    return panel(title, `选择 ${t.name} 的一张牌`, body, foot);
+  }
+
+  if (pend.mode === 'guanxing') {
+    const { top, bottom } = pend.gx;
+    const row = (key, label, cards) => `
+      <div class="pick-sec">
+        <div class="pick-label">${label}<span class="pick-n">${cards.length}</span></div>
+        <div class="pick-row gx-row" data-gx-row="${key}">
+          ${cards.map((c, i) => `<div class="pick-item gx-item" data-card-id="${c.id}">
+            ${cardHtml(c, { selectable: true })}
+            ${key === 'top' ? `<span class="order">${i + 1}</span>` : ''}
+          </div>`).join('') || '<span class="gx-empty">拖到此处</span>'}
+        </div>
+      </div>`;
+    return panel('观星',
+      `${me.name} 观看牌堆顶 ${pend.opts.cards.length} 张牌：牌堆顶从左到右依次被摸到`,
+      row('top', '牌堆顶', top) + row('bottom', '牌堆底', bottom),
+      btn('confirm-guanxing', '确定', true));
+  }
+  return '';
+}
+
+export function renderPicker(game, ui) {
+  const el = document.getElementById('picker');
+  const html = pickerHtml(game, ui);
+  el.innerHTML = html;
+  el.classList.toggle('hidden', !html);
 }
 
 // ---------- 选将界面 ----------

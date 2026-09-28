@@ -60,12 +60,12 @@ async function playUntilOver(heroId) {
     }
 
     const prompt = $('#banner .prompt')?.textContent || '';
-    const actions = $$('#banner [data-action]');
+    const actions = $$('#banner [data-action], #picker [data-action]');
     const hasAction = name => actions.some(b => b.dataset.action === name);
     const findAction = name => actions.find(b => b.dataset.action === name);
     const handSel = $$('#hand-row .card.selectable');
     const handUnselected = handSel.filter(c => !c.classList.contains('selected'));
-    const bannerCards = $$('#banner [data-card-id].selectable');
+    const bannerCards = $$('#picker .gx-item');
     let acted = false;
 
     // 出牌阶段已选中需要目标的牌 → 点头像
@@ -84,12 +84,13 @@ async function playUntilOver(heroId) {
       }
     }
     if (!acted && hasAction('confirm-guanxing')) {
-      if (bannerCards.length) click(bannerCards[0]);
+      // 先把第一张切到牌堆底，覆盖点击切换逻辑，再确定
+      if (bannerCards.length && !$('#picker [data-gx-row="bottom"] .gx-item')) click(bannerCards[0]);
       else click(findAction('confirm-guanxing'));
       acted = true;
     }
     if (!acted) {
-      const zoneBtn = actions.find(b => b.dataset.action.startsWith('zone:'));
+      const zoneBtn = actions.find(b => b.dataset.action.startsWith('zone:') || b.dataset.action.startsWith('wugu:'));
       if (zoneBtn) { click(zoneBtn); acted = true; }
     }
     if (!acted && hasAction('confirm-play')) { click(findAction('confirm-play')); acted = true; }

@@ -30,6 +30,7 @@ export class Game {
     this.currentTurnSeat = 0; // 当前回合角色座位
     this.currentPhase = null; // 当前阶段（供 UI 显示处理区）
     this.lastAction = null;   // 最近一次出牌 {player, card, targets}
+    this.wugu = null;         // 五谷丰登结算中：{ cards, taken: {cardId: 玩家名} }
   }
 
   log(msg) {
@@ -160,6 +161,7 @@ export class Game {
   // 从目标的区域中取出一张牌并返回（不做后续处置，由调用方决定获得还是弃置）。
   // zone: 'hand'（手牌不可见，随机取一张）| 装备栏位 key | 判定区的牌名。
   // 顺手牵羊 / 过河拆桥 / 反馈 共用，避免各写一份导致遗漏某个区域。
+  // UI 上虽然让玩家点选某一张牌背，但牌背顺序与真实手牌无关（官方同样洗乱显示），故统一随机。
   takeCardFromArea(target, zone) {
     if (zone === 'hand') {
       if (!target.hand.length) return null;

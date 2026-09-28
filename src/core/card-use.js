@@ -393,6 +393,9 @@ export async function resolveCardUse(game, player, action) {
       }
       game.discardCards([card.real || card]);
       game.log(`【五谷丰登】亮出：${revealed.map(cardLabel).join('、')}`);
+      // 供 UI 展示公共选牌面板：全部亮出的牌 + 已被谁选走
+      game.wugu = { cards: [...revealed], taken: {} };
+      game.notify();
       for (const target of game.seatOrder(player)) {
         await resolveTrick(game, {
           card: card.real || card, source: player, target, name: '五谷丰登',
@@ -402,14 +405,17 @@ export async function resolveCardUse(game, player, action) {
               count: 1, from: 'wugu', reason: 'wugu', info: { candidates: revealed },
             });
             if (pick && pick.length === 1) {
-              const c = pick[0];
-              revealed.splice(revealed.findIndex(x => x.id === c.id), 1);
+              const c = revealed.find(x => x.id === pick[0]?.id);
+              if (!c) return;
+              revealed.splice(revealed.indexOf(c), 1);
               target.hand.push(c);
+              if (game.wugu) game.wugu.taken[c.id] = target.name;
               game.log(`${target.name} 获得 ${cardLabel(c)}`);
             }
           },
         });
       }
+      game.wugu = null;
       if (revealed.length) game.discardCards(revealed);
       break;
     }

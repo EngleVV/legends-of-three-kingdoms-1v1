@@ -9,6 +9,8 @@
     "test": "node --test tests/",
     "test:rules": "node tests/ui-rules-check.js",
     "test:play": "node tests/ui-dom.js 16",
+    "test:drag": "node tests/ui-drag.js",
+    "test:picker": "node tests/ui-picker.js",
     "shot": "node tests/shot.js shot"
   },
   "devDependencies": {

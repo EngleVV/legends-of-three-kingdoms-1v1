@@ -48,16 +48,16 @@ async function ensurePlayPhase() {
     const pend = window.__ui?.()?.pending;
     if (pend?.mode === 'play' && !pend.skillId) {
       if (!pend.selected.length) return true;
-      const c = $$('#banner [data-action]').find(b => b.dataset.action === 'cancel-skill');
+      const c = $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === 'cancel-skill');
       if (c) { click(c); await sleep(6); continue; }
       return true;
     }
     // 推进其它询问，直到回到出牌阶段
-    const actions = $$('#banner [data-action]');
+    const actions = $$('#banner [data-action], #picker [data-action]');
     const find = n => actions.find(b => b.dataset.action === n);
     const unselected = $$('#hand-row .card.selectable:not(.selected)');
     // 五谷丰登/观星：横幅里是候选卡牌，没有按钮
-    const bannerCards = $$('#banner [data-card-id].selectable');
+    const bannerCards = $$('#picker .gx-item');
     const pick = find('confirm-pick');
     if (pick) {
       // 需要先凑够张数才能确定（弃牌阶段等）
@@ -66,10 +66,8 @@ async function ensurePlayPhase() {
       else if (find('cancel')) click(find('cancel'));
     } else if (find('confirm-guanxing')) {
       click(find('confirm-guanxing'));
-    } else if (bannerCards.length) {
-      click(bannerCards[0]);
     } else {
-      const zone = actions.find(b => b.dataset.action.startsWith('zone:'));
+      const zone = actions.find(b => b.dataset.action.startsWith('zone:') || b.dataset.action.startsWith('wugu:'));
       const simple = ['cancel', 'no'].map(find).find(b => b && !b.disabled);
       if (zone) click(zone);
       else if (simple) click(simple);
@@ -213,7 +211,7 @@ if (material) {
   click(material);
   await sleep(10);
   check($('#banner').textContent.includes('再选一张'), '仅选一张材料时提示再选一张');
-  check(!$$('#banner [data-action]').some(b => b.dataset.action === 'confirm-play'),
+  check(!$$('#banner [data-action], #picker [data-action]').some(b => b.dataset.action === 'confirm-play'),
     '仅选一张【闪】时不应出现"确定"（避免白白弃牌）');
 } else {
   check(false, '应有可点选的合成材料（前置断言已失败，跳过后续）');
@@ -245,7 +243,7 @@ console.log('\n== 8) 对手区 targetable 高亮随选牌切换 ==');
 await ensurePlayPhase();
 normalizeOpp(g);
 // 先清掉上一节残留的选中状态
-const clearBtn = $$('#banner [data-action]').find(b => b.dataset.action === 'cancel-skill');
+const clearBtn = $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === 'cancel-skill');
 if (clearBtn) { click(clearBtn); await sleep(10); }
 me.equip.weapon = null;
 me.hand = [grab('sha'), grab('wuzhong')].filter(Boolean);
@@ -261,7 +259,7 @@ click(shaCard);
 await sleep(10);
 check($('#opp-row').classList.contains('targetable'), '选中【杀】后对手区高亮（指示可点头像）');
 // 取消选择后应恢复
-const cancelBtn = $$('#banner [data-action]').find(b => b.dataset.action === 'cancel-skill');
+const cancelBtn = $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === 'cancel-skill');
 if (cancelBtn) click(cancelBtn);
 await sleep(10);
 check(!$('#opp-row').classList.contains('targetable'), '取消选择后高亮消失');
@@ -276,7 +274,7 @@ me.hand = [grab('sha')].filter(Boolean);
 me.flags.zhihengUsed = false;
 g.notify();
 await sleep(10);
-const zhBtn = $$('#banner [data-action]').find(b => b.dataset.action === 'skill-zhiheng');
+const zhBtn = $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === 'skill-zhiheng');
 check(!!zhBtn, '出牌阶段应有【制衡】按钮');
 if (zhBtn) {
   click(zhBtn);
@@ -289,10 +287,10 @@ if (zhBtn) {
     click(equipSel[0]);
     await sleep(10);
     check($$('#self-row .card.selected').length === 1, '点击装备后被选中');
-    const ok = $$('#banner [data-action]').find(b => b.dataset.action === 'confirm-zhiheng');
+    const ok = $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === 'confirm-zhiheng');
     check(!!ok && !ok.disabled, '选中装备后「确定」可用');
   }
-  const back = $$('#banner [data-action]').find(b => b.dataset.action === 'cancel-skill');
+  const back = $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === 'cancel-skill');
   if (back) { click(back); await sleep(10); }
 }
 

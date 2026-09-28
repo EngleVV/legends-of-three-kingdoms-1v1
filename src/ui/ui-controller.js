@@ -9,7 +9,9 @@ export class UIController extends Controller {
 
   _begin(mode, opts = {}) {
     return new Promise(resolve => {
-      this.pending = { mode, opts, resolve, selected: [], seq: [], skillId: null, asSha: false };
+      this.pending = { mode, opts, resolve, selected: [], skillId: null, asSha: false };
+      // 观星：官方初始把所有牌放在「牌堆顶」一行，玩家再调整顺序或拖到「牌堆底」
+      if (mode === 'guanxing') this.pending.gx = { top: [...opts.cards], bottom: [] };
       // pending 就绪后必须重绘，否则横幅/可点牌停留在旧状态，玩家会看到"卡死"
       this.game?.notify();
     });
@@ -70,12 +72,21 @@ export class UIController extends Controller {
     if (pend && pend.mode === 'play' && pend.selected.length === 1) pend.asSha = true;
   }
 
-  toggleGuanxing(card) {
-    const pend = this.pending;
-    if (!pend) return;
-    const i = pend.seq.findIndex(c => c.id === card.id);
-    if (i >= 0) pend.seq.splice(i, 1);
-    else pend.seq.push(card);
+  // 观星：把一张牌移到 row（'top'|'bottom'）的第 index 位；index 省略则放到末尾
+  moveGuanxing(cardId, row, index = Infinity) {
+    const gx = this.pending?.gx;
+    if (!gx) return;
+    let card = null;
+    for (const r of ['top', 'bottom']) {
+      const i = gx[r].findIndex(c => c.id === cardId);
+      if (i >= 0) {
+        card = gx[r].splice(i, 1)[0];
+        // 同行内后移：移除后目标下标需左移一位
+        if (r === row && i < index) index--;
+      }
+    }
+    if (!card) return;
+    gx[row].splice(Math.max(0, Math.min(index, gx[row].length)), 0, card);
   }
 
   startSkill(skillId) {
