@@ -13,6 +13,7 @@ import { makeVirtual, resolveCardUse, resolveSlash, useSkill, shaLimitLeft, vali
 import { handleDying as handleDyingImported } from '../src/core/dying.js';
 import { applyDamage as applyDamageImported } from '../src/core/damage.js';
 import { runTurn } from '../src/core/turn.js';
+import { doJudge as doJudgeImported } from '../src/core/judge.js';
 
 function mkGame(h1, h2, c1, c2, logger = () => {}) {
   return new Game({ heroes: [HEROES[h1], HEROES[h2]], controllers: [c1, c2], logger });
@@ -818,4 +819,32 @@ test('顺手牵羊：获得对方手牌', async () => {
   await resolveCardUse(g, cc, { card: shunshou, targets: [sq] });
   assert.ok(cc.hand.some(c => c.id === target.id), '应获得对方手牌');
   assert.strictEqual(sq.hand.length, 0);
+});
+
+// ---------- 判定牌进入处理区 ----------
+
+test('判定：判定牌登记到处理区，鬼才询问期间可见，改判后显示新牌与结果', async () => {
+  let seenDuringAsk = null;
+  const g = mkGame('simayi', 'caocao',
+    new ScriptController({
+      async askChooseJudgeReplace(p, info) {
+        // 询问改判时，处理区应已展示当前判定牌、结果尚未揭晓
+        seenDuringAsk = { id: g.lastAction?.card.id, result: g.lastAction?.judge?.result };
+        return p.hand[0];
+      },
+    }),
+    new AIController());
+  g.registerHeroHooks();
+  const [smy, cc] = g.players;
+  const spade5 = drawOutBy(g, c => c.suit === '♠' && c.rank === 5);   // 闪电命中牌
+  const heart = drawOutBy(g, c => c.suit === '♥');                      // 改判用
+  smy.hand = [heart];
+  g.deck.putOnTop([spade5]);
+  const final = await doJudgeImported(g, cc, '闪电');
+  assert.deepStrictEqual(seenDuringAsk, { id: spade5.id, result: null });
+  assert.strictEqual(final.id, heart.id);
+  assert.strictEqual(g.lastAction.card.id, heart.id, '处理区显示改判后的牌');
+  assert.strictEqual(g.lastAction.judge.reason, '闪电');
+  assert.strictEqual(g.lastAction.judge.result, '未生效');
+  assert.strictEqual(g.lastAction.judge.replacedBy, smy.name);
 });

@@ -210,6 +210,14 @@ button.primary {
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
 }
 .field-act { font-size: 13px; color: #d8c7a0; letter-spacing: 1px; white-space: nowrap; }
+/* 判定结果徽章：判定中（金）/ 生效（红）/ 未生效（灰绿） */
+.judge-tag {
+  display: inline-block; margin-left: 6px; padding: 0 7px; border-radius: 9px;
+  font-size: 12px; letter-spacing: 0; border: 1px solid var(--gold); color: var(--gold-lit);
+}
+.judge-tag.on { border-color: #d0664f; background: #7a2a20; color: #ffd9cf; }
+.judge-tag.off { border-color: #6f8a6a; background: #2c3a2a; color: #cfe3c8; }
+.judge-note { margin-left: 6px; font-size: 12px; color: #b9a6e0; letter-spacing: 0; }
 .field-cards { flex-wrap: nowrap; overflow: hidden; gap: 8px; min-height: 0; }
 
 /* ---------- 操作横幅 ---------- */

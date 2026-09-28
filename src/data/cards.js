@@ -90,6 +90,21 @@ export function isRed(card) {
   return card.suit === '♥' || card.suit === '♦';
 }
 
+// ---------- 判定 ----------
+// 各判定「生效」的判据（唯一来源：引擎结算、AI 改判、UI 处理区显示结果都用它）
+//   乐不思蜀：非红桃 → 判定者跳过出牌阶段
+//   闪电：黑桃 2~9 → 判定者受 3 点雷电伤害
+//   八卦阵：红色 → 视为打出【闪】
+export const JUDGE_EFFECTIVE = {
+  '乐不思蜀': c => c.suit !== '♥',
+  '闪电': c => c.suit === '♠' && c.rank >= 2 && c.rank <= 9,
+  '八卦阵': c => isRed(c),
+};
+
+export function judgeEffective(reason, card) {
+  return !!JUDGE_EFFECTIVE[reason]?.(card);
+}
+
 // ---------- 距离与目标合法性 ----------
 // 1v1 基础距离为 1；目标的 +1 马（防御马）令距离 +1，自己的 -1 马（进攻马）令距离 -1，最小为 1。
 export function distance(source, target) {

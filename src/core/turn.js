@@ -1,5 +1,5 @@
 // 回合流程：准备 → 判定 → 摸牌 → 出牌 → 弃牌 → 结束
-import { cardLabel } from '../data/cards.js';
+import { cardLabel, judgeEffective } from '../data/cards.js';
 import { resolveCardUse, useSkill } from './card-use.js';
 import { doJudge } from './judge.js';
 import { resolveTrick } from './nullify-chain.js';
@@ -18,11 +18,11 @@ export async function resolveJudgeZone(game, player) {
         card: jc, source: game.opponentOf(player), target: player, name: '乐不思蜀',
         apply: async () => {
           const jcard = await doJudge(game, player, '乐不思蜀');
-          if (jcard.suit === '♥') {
-            game.log(`【乐不思蜀】判定为 ${cardLabel(jcard)}（红桃），失效`);
-          } else {
+          if (judgeEffective('乐不思蜀', jcard)) {
             player.flags.skipPlay = true;
             game.log(`【乐不思蜀】判定为 ${cardLabel(jcard)}（非红桃），生效，${player.name} 跳过出牌阶段`);
+          } else {
+            game.log(`【乐不思蜀】判定为 ${cardLabel(jcard)}（红桃），失效`);
           }
         },
       });
@@ -45,7 +45,7 @@ export async function resolveJudgeZone(game, player) {
         apply: async () => {
           applied = true;
           const jcard = await doJudge(game, player, '闪电');
-          if (jcard.suit === '♠' && jcard.rank >= 2 && jcard.rank <= 9) {
+          if (judgeEffective('闪电', jcard)) {
             game.log(`【闪电】判定为 ${cardLabel(jcard)}（黑桃2~9），命中！`);
             // 先挂起这张【闪电】，使奸雄能获得"造成伤害的牌"
             handled = true;

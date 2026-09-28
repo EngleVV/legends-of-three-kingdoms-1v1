@@ -442,7 +442,7 @@ document.addEventListener('click', e => {
 
   // 横幅 / 选将 / 结算界面的按钮
   const btn = e.target.closest('[data-action]');
-  if (btn) { onBannerAction(btn.dataset.action); return; }
+  if (btn) { if (!btn.disabled) onBannerAction(btn.dataset.action); return; }
 
   // 观星面板中的牌
   const gxCard = e.target.closest('#picker .gx-item');

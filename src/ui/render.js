@@ -263,7 +263,17 @@ function fieldHtml(game) {
   const act = game.lastAction;
   // 优先展示「结算中」的牌（官方处理区语义），否则展示最近一次出牌，再否则展示弃牌堆顶
   let cards, label;
-  if (game.pendingDiscard.length) {
+  if (act?.judge) {
+    // 判定牌（官方：翻开后置于处理区）。闪电命中时挂起的【闪电】等结算中牌一并展示
+    const j = act.judge;
+    const others = game.pendingDiscard.filter(c => c.id !== act.card.id);
+    cards = [act.card, ...others].slice(0, 4);
+    const state = j.result
+      ? `<span class="judge-tag ${j.result === '生效' ? 'on' : 'off'}">${j.result}</span>`
+      : '<span class="judge-tag">判定中</span>';
+    label = `${act.player.name} 判定【${j.reason}】${state}`
+      + (j.replacedBy ? `<span class="judge-note">${j.replacedBy} 鬼才改判</span>` : '');
+  } else if (game.pendingDiscard.length) {
     cards = game.pendingDiscard.slice(-4);
     label = '结算中';
   } else if (act) {
@@ -346,7 +356,8 @@ function bannerHtml(game, ui) {
         } else {
           const hasActiveSkill = hasSkill(me, 'zhiheng') || hasSkill(me, 'rende');
           buttons =
-            (hasSkill(me, 'zhiheng') ? btn('skill-zhiheng', '制衡') : '') +
+            // 制衡出牌阶段限一次，用过后置灰
+            (hasSkill(me, 'zhiheng') ? btn('skill-zhiheng', '制衡', { disabled: !!me.flags.zhihengUsed }) : '') +
             (hasSkill(me, 'rende') ? btn('skill-rende', '仁德') : '') +
             btn('end-play', '结束出牌', { primary: !hasActiveSkill });
         }

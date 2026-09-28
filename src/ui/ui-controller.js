@@ -41,7 +41,11 @@ export class UIController extends Controller {
     const pend = this.pending;
     if (!pend) return;
     const i = pend.selected.findIndex(c => c.id === card.id);
-    if (pend.mode === 'play' || pend.mode === 'respond') {
+    if (pend.mode === 'play' && pend.skillId) {
+      // 制衡（弃置任意张）/ 仁德（交出任意张）：多选，再点一次取消
+      if (i >= 0) pend.selected.splice(i, 1);
+      else pend.selected.push(card);
+    } else if (pend.mode === 'play' || pend.mode === 'respond') {
       // 丈八蛇矛：可选两张手牌当【杀】（其余情况单选）
       const me = this.game?.players[0];
       const zhangba = me?.equip.weapon?.name === 'zhangba';

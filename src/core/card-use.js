@@ -1,8 +1,8 @@
 // 出牌/用牌结算
 import {
-  cardLabel, isRed, canTarget,
+  cardLabel, canTarget,
   canUseInPlayPhase, canUseZhangbaSha, canRespondWith, shaLeftOf,
-  canUseCardAs, canZhangbaPair,
+  canUseCardAs, canZhangbaPair, judgeEffective,
 } from '../data/cards.js';
 import { hasSkill } from '../data/heroes.js';
 import { applyDamage } from './damage.js';
@@ -92,7 +92,7 @@ async function askForShan(game, player, reason = 'sha') {
     if (invoke) {
       game.log(`${player.name} 发动【八卦阵】`);
       const jc = await doJudge(game, player, '八卦阵');
-      if (isRed(jc)) {
+      if (judgeEffective('八卦阵', jc)) {
         game.log(`${player.name} 八卦阵判定生效（${cardLabel(jc)} 为红色），视为打出【闪】`);
         return { bagua: true };
       }

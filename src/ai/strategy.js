@@ -1,6 +1,6 @@
 // AI 启发式策略（纯函数，输入局面，输出决策）
 import {
-  isRed, canTarget, canUseInPlayPhase, canUseZhangbaSha, canUseAsSha, canZhangbaPair,
+  canTarget, canUseInPlayPhase, canUseZhangbaSha, canUseAsSha, canZhangbaPair, JUDGE_EFFECTIVE,
 } from '../data/cards.js';
 import { hasSkill } from '../data/heroes.js';
 
@@ -224,12 +224,8 @@ export function chooseCards(game, p, opts) {
 // 自己的判定求有利结果，对方的判定求不利结果。
 export function chooseJudgeReplace(game, p, info) {
   const { judgeCard, reason, player: judger } = info;
-  // 各判定的"命中"判据
-  const hit = {
-    '闪电': c => c.suit === '♠' && c.rank >= 2 && c.rank <= 9, // 命中=判定者受 3 点伤害
-    '乐不思蜀': c => c.suit !== '♥',                            // 命中=判定者跳过出牌阶段
-    '八卦阵': c => c.suit === '♥' || c.suit === '♦',            // 命中=判定者视为打出闪
-  }[reason];
+  // 各判定的"生效"判据，统一取自 data/cards.js
+  const hit = JUDGE_EFFECTIVE[reason];
   if (!hit) return null;
   // 八卦阵命中对判定者有利，闪电/乐命中对判定者不利
   const goodForJudger = reason === '八卦阵' ? hit : (c => !hit(c));

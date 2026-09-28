@@ -294,5 +294,70 @@ if (zhBtn) {
   if (back) { click(back); await sleep(10); }
 }
 
+console.log('\n== 10) 制衡可一次弃置多张牌，且出牌阶段限一次 ==');
+await ensurePlayPhase();
+normalizeOpp(g);
+if (!me.hero.skills.includes('zhiheng')) me.hero = { ...me.hero, skills: [...me.hero.skills, 'zhiheng'] };
+me.equip['horse+'] = grab('ma+1');
+me.hand = [grab('sha'), grab('shan'), grab('wuzhong')].filter(Boolean);
+me.flags.zhihengUsed = false;
+g.notify();
+await sleep(10);
+{
+  const findBtn = n => $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === n);
+  click(findBtn('skill-zhiheng'));
+  await sleep(10);
+  const handN = me.hand.length;
+  // 依次点选全部手牌 + 装备
+  for (let i = 0; i < handN; i++) {
+    const c = $$('#hand-row .card.selectable:not(.selected)')[0];
+    if (c) { click(c); await sleep(5); }
+  }
+  const eq = $$('#self-row .card.selectable:not(.selected)')[0];
+  if (eq) { click(eq); await sleep(5); }
+  const total = handN + (eq ? 1 : 0);
+  check($$('#hand-row .card.selected').length === handN, `手牌可多选（选中 ${$$('#hand-row .card.selected').length}/${handN}）`);
+  check(window.__ui().pending.selected.length === total, `共选中 ${total} 张（手牌+装备）`);
+  // 再点一次取消其中一张
+  click($$('#hand-row .card.selected')[0]); await sleep(5);
+  check(window.__ui().pending.selected.length === total - 1, '再次点击可取消单张');
+  click($$('#hand-row .card.selectable:not(.selected)')[0]); await sleep(5);
+  // 监听弃牌调用而非看弃牌堆计数：摸牌时牌堆耗尽会把弃牌堆洗回，计数不可靠
+  const chosenIds = window.__ui().pending.selected.map(c => c.id).sort();
+  const discarded = [];
+  const origDiscard = g.discardCards.bind(g);
+  g.discardCards = (cards, ...rest) => { discarded.push(...cards.map(c => c.id)); return origDiscard(cards, ...rest); };
+  click(findBtn('confirm-zhiheng'));
+  await sleep(30);
+  g.discardCards = origDiscard;
+  check(chosenIds.every(id => discarded.includes(id)), `选中的 ${total} 张全部被弃置`);
+  check(me.hand.length === total && !me.equip['horse+'], `摸回等量 ${total} 张，装备已弃`);
+  await ensurePlayPhase();
+  const again = findBtn('skill-zhiheng');
+  check(!!again && again.disabled, '本回合已制衡后按钮置灰');
+}
+
+console.log('\n== 11) 判定牌显示在中央处理区 ==');
+await ensurePlayPhase();
+normalizeOpp(g);
+{
+  const { doJudge } = await import('../src/core/judge.js');
+  // 取一张确定生效的闪电判定牌（黑桃 2~9）放到牌堆顶；取不到就跳过，避免误报
+  const i = g.deck.cards.findIndex(c => c.suit === '♠' && c.rank >= 2 && c.rank <= 9);
+  if (i >= 0) {
+    const jc = g.deck.cards.splice(i, 1)[0];
+    g.deck.putOnTop([jc]);
+    // 只翻判定、不结算闪电伤害，避免影响后续
+    await doJudge(g, me, '闪电');
+    await sleep(10);
+    const field = $('#field');
+    check(!!field.querySelector(`[data-card-id="${jc.id}"]`), '处理区出现判定牌');
+    check(field.textContent.includes('判定【闪电】'), '处理区标注判定原因');
+    check(!!field.querySelector('.judge-tag.on'), '处理区显示「生效」');
+  } else {
+    console.log('  （牌堆无黑桃2~9，跳过）');
+  }
+}
+
 console.log(`\n结果：${fails === 0 ? '全部通过' : fails + ' 项失败'}`);
 process.exit(fails === 0 ? 0 : 1);
