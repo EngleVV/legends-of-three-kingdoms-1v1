@@ -32,6 +32,7 @@ export class Game {
     this.lastAction = null;   // 最近一次出牌 {player, card, targets}
     this.wugu = null;         // 五谷丰登结算中：{ cards, taken: {cardId: 玩家名} }
     this.asking = null;       // 当前询问：{ player, method, args }
+    this.indicator = null;    // 最近一次指定目标：{ seq, from, to: [座位] }
   }
 
   log(msg) {
@@ -183,6 +184,16 @@ export class Game {
     const i = target.judgeZone.findIndex(c => c.name === zone);
     if (i >= 0) return target.judgeZone.splice(i, 1)[0];
     return null;
+  }
+
+  // ---------- 指示线 ----------
+  // 使用牌/技能指定目标时调用：UI 据此从使用者头像向各目标画指示线（官方的目标指示器）。
+  // seq 单调递增，UI 以此判断是否为新的一次指定。
+  pointAt(from, tos) {
+    const to = (tos || []).filter(t => t && t !== from);
+    if (!from || !to.length) return;
+    this.indicator = { seq: (this.indicator?.seq || 0) + 1, from: from.seat, to: to.map(t => t.seat) };
+    this.notify();
   }
 
   // ---------- 伤害/回复 ----------

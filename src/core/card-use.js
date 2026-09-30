@@ -122,6 +122,7 @@ export async function resolveSlash(game, source, target, vcard, opts = {}) {
     return;
   }
   game.log(`${source.name} 对 ${target.name} 使用 ${useLabel(vcard)}`);
+  game.pointAt(source, [target]);
   const weapon = () => source.equip.weapon?.name;
 
   // 雌雄双股剑：指定异性目标后触发
@@ -256,6 +257,7 @@ export async function resolveJuedou(game, source, target, vcard) {
     return;
   }
   game.log(`${source.name} 对 ${target.name} 使用 ${useLabel(vcard)}`);
+  game.pointAt(source, [target]);
   discardUsed(game, vcard);
   await resolveTrick(game, {
     card: vcard.real, source, target, name: '决斗',
@@ -334,6 +336,9 @@ export async function resolveCardUse(game, player, action) {
   if (!['sha', 'juedou'].includes(card.name) && card.type !== 'equip') {
     const to = targets.length ? `对 ${targets.map(t => t.name).join('、')} ` : '';
     game.log(`${player.name} ${to}使用 ${useLabel(card)}`);
+    // 指示线：指定目标的锦囊指向目标；群体锦囊（南蛮/万箭/桃园/五谷）指向其余角色
+    const aoe = ['nanman', 'wanjian', 'taoyuan', 'wugu'].includes(card.name);
+    game.pointAt(player, aoe ? game.players.filter(p => p !== player) : targets);
   }
   game.notify();
 
@@ -547,6 +552,7 @@ export async function useSkill(game, player, action) {
     const opp = game.opponentOf(player);
     opp.hand.push(...cards);
     player.flags.rendeGiven += cards.length;
+    game.pointAt(player, [opp]);
     // 动画提示：这批牌是「交给」对方，UI 幽灵飞向对方而非弃牌堆
     game.lastGive = { ids: cards.map(c => c.id), to: opp.seat };
     game.log(`${player.name} 发动【仁德】，将 ${cards.map(cardLabel).join('、')} 交给 ${opp.name}`);

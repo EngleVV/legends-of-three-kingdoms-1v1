@@ -1,4 +1,4 @@
-// 流程动画（参考官方：卡牌飞行、摸牌滑入、伤害飘字、头像震动、回合横幅）
+// 流程动画（参考官方：卡牌飞行、摸牌滑入、目标指示线、伤害飘字、头像震动、回合横幅）
 // 实现方式：全量重绘前抓取「卡牌按 id 的旧位置」，重绘后按前后帧差值做 FLIP 补间；
 // 消失的卡生成幽灵飞向弃牌堆（或仁德交付对象），新出现的卡按区域播入场动画。
 // 全部基于 WAAPI，不阻塞引擎；环境不支持（jsdom 测试）或系统设定减少动态效果时自动跳过。
@@ -13,9 +13,11 @@ const ENTER = 240;    // 新牌入场
 const SHAKE = 400;    // 头像受击震动
 const FLOAT = 900;    // 飘字
 const BANNER = 950;   // 回合横幅
+const POINT = 1400;   // 目标指示线：伸出 → 停留 → 淡出
 
 let pendingSnap = null; // 本次重绘前抓取的快照
 let prev = null;        // 上一次重绘的快照（playFx 与其比较）
+let lastPointSeq = 0;   // 已播放过的指示线序号
 
 const fxLayer = () => document.getElementById('fx-layer');
 const rectOf = el => el.getBoundingClientRect();
@@ -56,6 +58,7 @@ export function playFx(game) {
   if (!game || !snap) return;
   const before = prev;   // 上一次重绘的快照
   prev = snap;
+  playPointFx(game);
   if (!before) return;   // 首帧无基准，只建基准不播特效
   playCardFx(game, before);
   playHpFx(game, before);
@@ -227,4 +230,64 @@ function playTurnFx(game, before) {
     { transform: 'translate(-50%, -50%) scale(1)', opacity: 1, offset: .7 },
     { transform: 'translate(-50%, -50%) scale(1.05)', opacity: 0 },
   ], { duration: BANNER, easing: 'ease-out' }).onfinish = () => el.remove();
+}
+
+// 目标指示线（官方：使用牌指定目标时，从使用者武将牌伸出一道指向目标的光箭，目标武将牌闪一圈）
+function playPointFx(game) {
+  const ind = game.indicator;
+  if (!ind || ind.seq === lastPointSeq) return;
+  lastPointSeq = ind.seq;
+  const fromEl = avatarOf(ind.from);
+  if (!fromEl) return;
+  const a = rectOf(fromEl);
+  for (const seat of ind.to) {
+    const toEl = avatarOf(seat);
+    if (!toEl) continue;
+    const b = rectOf(toEl);
+    spawnPointer(a, b);
+    spawnTargetRing(b);
+  }
+}
+
+function spawnPointer(a, b) {
+  const ax = a.left + a.width / 2, ay = a.top + a.height / 2;
+  const bx = b.left + b.width / 2, by = b.top + b.height / 2;
+  const dx = bx - ax, dy = by - ay;
+  const dist = Math.hypot(dx, dy);
+  // 起止点收进头像边缘，箭头停在目标头像外沿
+  const inset = Math.min(a.height, b.height) * 0.5 + 6;
+  const len = dist - inset * 2;
+  if (len <= 10) return;
+  const ux = dx / dist, uy = dy / dist;
+  const el = document.createElement('div');
+  el.className = 'fx-pointer';
+  el.style.left = `${ax + ux * inset}px`;
+  el.style.top = `${ay + uy * inset}px`;
+  el.style.width = `${len}px`;
+  el.style.transform = `translateY(-50%) rotate(${Math.atan2(dy, dx)}rad)`;
+  fxLayer().appendChild(el);
+  // 从使用者一侧向目标伸出（clip-path 展开，箭头不被拉伸变形）
+  el.animate([
+    { clipPath: 'inset(0 100% 0 0)', opacity: 1, offset: 0 },
+    { clipPath: 'inset(0 0 0 0)', opacity: 1, offset: 0.22 },
+    { clipPath: 'inset(0 0 0 0)', opacity: 1, offset: 0.78 },
+    { clipPath: 'inset(0 0 0 0)', opacity: 0, offset: 1 },
+  ], { duration: POINT, easing: 'ease-out' }).onfinish = () => el.remove();
+}
+
+function spawnTargetRing(b) {
+  const el = document.createElement('div');
+  el.className = 'fx-target-ring';
+  el.style.left = `${b.left - 4}px`;
+  el.style.top = `${b.top - 4}px`;
+  el.style.width = `${b.width + 8}px`;
+  el.style.height = `${b.height + 8}px`;
+  fxLayer().appendChild(el);
+  el.animate([
+    { opacity: 0, transform: 'scale(1.25)', offset: 0 },
+    { opacity: 0, transform: 'scale(1.25)', offset: 0.18 },
+    { opacity: 1, transform: 'scale(1)', offset: 0.32 },
+    { opacity: 1, transform: 'scale(1)', offset: 0.78 },
+    { opacity: 0, transform: 'scale(1)', offset: 1 },
+  ], { duration: POINT, easing: 'ease-out' }).onfinish = () => el.remove();
 }

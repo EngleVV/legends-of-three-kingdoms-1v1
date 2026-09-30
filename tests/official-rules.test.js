@@ -192,3 +192,40 @@ test('武圣：装备区的红色牌可当【杀】使用，按失去该装备�
   assert.strictEqual(gy.equip['horse-'], null);
   assert.strictEqual(gy.flags.shaUsed, 1);
 });
+
+// ---------- 目标指示线 ----------
+test('指示线：指定目标的牌/群体锦囊/借刀的杀都会记录，无目标的牌不记录', async () => {
+  const g = mkGame('zhangfei', 'sunquan', new Script(), new AIController());
+  g.registerHeroHooks();
+  const [zf, sq] = g.players;
+  zf.flags = { shaUsed: 0 };
+  sq.hand = [];
+  const seq = () => g.indicator?.seq || 0;
+
+  const wz = drawOut(g, 'wuzhong');
+  zf.hand = [wz];
+  await resolveCardUse(g, zf, { card: wz, targets: [] });
+  assert.strictEqual(seq(), 0, '无中生有不指定他人，不画指示线');
+
+  const sha = drawOut(g, 'sha');
+  zf.hand.push(sha);
+  await resolveCardUse(g, zf, { card: sha, targets: [sq] });
+  assert.deepStrictEqual([g.indicator.from, g.indicator.to], [0, [1]], '【杀】从张飞指向孙权');
+  const s1 = seq();
+
+  const nm = drawOut(g, 'nanman');
+  zf.hand.push(nm);
+  await resolveCardUse(g, zf, { card: nm, targets: [] });
+  assert.ok(seq() > s1 && g.indicator.to[0] === 1, '南蛮入侵指向其余角色');
+
+  // 借刀杀人：孙权被借刀后对张飞出【杀】，应出现 孙权 → 张飞 的指示
+  sq.equip.weapon = drawOut(g, 'qinglong');
+  sq.hand = [drawOut(g, 'sha')];
+  const jd = drawOut(g, 'jiedao');
+  zf.hand.push(jd);
+  const froms = [];
+  const orig = g.pointAt.bind(g);
+  g.pointAt = (f, t) => { froms.push(f.seat); orig(f, t); };
+  await resolveCardUse(g, zf, { card: jd, targets: [sq] });
+  assert.deepStrictEqual(froms.slice(0, 2), [0, 1], '先 张飞→孙权（借刀），再 孙权→张飞（杀）');
+});

@@ -14,6 +14,7 @@ export default {
         const invoke = await game.ask(owner, 'askSkillInvoke', 'fankui', { source: ctx.source });
         if (!invoke) return null;
         game.log(`${owner.name} 发动【反馈】`);
+        game.pointAt(owner, [ctx.source]);
         const pick = await game.ask(owner, 'askChooseCards', {
           count: 1, from: 'target-area', reason: 'fankui', noJudge: true, info: { target: ctx.source },
         });

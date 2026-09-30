@@ -325,6 +325,28 @@ button.primary {
   text-shadow: 0 0 24px rgba(255,207,92,.55), 0 2px 6px rgba(0,0,0,.9);
   white-space: nowrap;
 }
+/* 目标指示线：使用者 → 目标的光箭 */
+.fx-pointer {
+  position: fixed; z-index: 203; pointer-events: none; height: 14px;
+  transform-origin: 0 50%;
+}
+.fx-pointer::before {
+  content: ''; position: absolute; left: 0; right: 12px; top: 50%; height: 4px; margin-top: -2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(255,207,92,.15), #ffd76a 40%, #fff3c8);
+  box-shadow: 0 0 8px rgba(255,190,70,.9), 0 0 18px rgba(255,150,40,.55);
+}
+.fx-pointer::after {
+  content: ''; position: absolute; right: 0; top: 50%; margin-top: -7px;
+  border-left: 14px solid #fff3c8; border-top: 7px solid transparent; border-bottom: 7px solid transparent;
+  filter: drop-shadow(0 0 5px rgba(255,190,70,.95));
+}
+/* 被指定的目标：武将牌外圈闪光 */
+.fx-target-ring {
+  position: fixed; z-index: 203; pointer-events: none;
+  border: 2px solid #ffd76a; border-radius: 10px;
+  box-shadow: 0 0 14px rgba(255,190,70,.85), inset 0 0 12px rgba(255,190,70,.45);
+}
 /* 阵亡：武将牌整体褪色 */
 .hero-plate { transition: filter .8s, opacity .8s; }
 .hero-plate.died { filter: grayscale(.95) brightness(.6); opacity: .65; }
