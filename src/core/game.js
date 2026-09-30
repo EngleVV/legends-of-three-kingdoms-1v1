@@ -34,6 +34,7 @@ export class Game {
     }
     this.winners = [];
     this.winnerSide = null;
+    this.loyalty = this.players.map(() => 0);
     // 让 controller 能访问局面（AI 决策需要）
     controllers.forEach((c, i) => { if (c) c.game = this; });
     this.deck = new Deck(buildStandardDeck());
@@ -234,6 +235,24 @@ export class Game {
     if (!from || !to.length) return;
     this.indicator = { seq: (this.indicator?.seq || 0) + 1, from: from.seat, to: to.map(t => t.seat) };
     this.notify();
+  }
+
+  // ---------- 公开行为记录（身份推断） ----------
+  // 所有人都能看到的行为：谁对谁使用了有害/有益的牌。据此维护每名角色的「忠诚度」：
+  // 伤害主公或疑似忠方 → 降低；帮助主公或打击疑似反贼 → 升高。只依赖公开信息（主公身份、阵亡亮出的身份）。
+  sideOf(p) {
+    if (p.role === 'lord') return 2;
+    if (p.roleRevealed) return { loyalist: 1, rebel: -1, renegade: 0 }[p.role] ?? 0;
+    const v = this.loyalty[p.seat];
+    return v > 0.5 ? 1 : v < -0.5 ? -1 : 0;
+  }
+
+  recordRelation(from, to, kind, w = 1) {
+    if (this.mode !== 'identity' || !from || !to || from === to) return;
+    if (from.role === 'lord') return; // 主公立场已知，无需推断
+    const side = this.sideOf(to);
+    if (!side) return;
+    this.loyalty[from.seat] += (kind === 'help' ? 1 : -1) * side * w;
   }
 
   // ---------- 伤害/回复 ----------

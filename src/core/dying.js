@@ -2,6 +2,7 @@
 import { handCardOf } from './util.js';
 import { canUseCardAs, cardLabel } from '../data/cards.js';
 import { killPlayer } from './identity.js';
+import { hasLordSkill } from '../data/heroes.js';
 
 export async function handleDying(game, target, killer = null) {
   let guard = 0;
@@ -19,8 +20,11 @@ export async function handleDying(game, target, killer = null) {
       if (card) {
         p.removeFromHand([card]);
         game.discardCards([card]);
-        target.hp += 1;
-        game.log(`${p.name} 对 ${p === target ? '自己' : target.name} 使用 ${cardLabel(card)}，${target.name} 回复至 ${target.hp} 血`);
+        // 救援（孙权主公技）：其他吴势力角色对其使用【桃】时额外回复 1 点
+        const jiuyuan = p !== target && hasLordSkill(target, 'jiuyuan') && p.hero.kingdom === '吴';
+        target.hp += jiuyuan ? 2 : 1;
+        game.log(`${p.name} 对 ${p === target ? '自己' : target.name} 使用 ${cardLabel(card)}${jiuyuan ? '（【救援】额外回复 1 点）' : ''}，${target.name} 回复至 ${target.hp} 血`);
+        if (game.recordRelation) game.recordRelation(p, target, 'help');
         saved = true;
       }
     }

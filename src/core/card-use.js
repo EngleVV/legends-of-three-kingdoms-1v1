@@ -3,7 +3,7 @@ import {
   cardLabel, canTarget,
   canUseInPlayPhase, canUseZhangbaSha, canRespondWith, shaLeftOf,
   canUseCardAs, canZhangbaPair, judgeEffective, armorOf, renwangBlocks, hasCard,
-  canUseAsSha, equipCardOf, afterLosing, canJiedaoVictim, NEED_TARGET,
+  canUseAsSha, equipCardOf, afterLosing, canJiedaoVictim, NEED_TARGET, lordHelpers, canUseJijiang,
 } from '../data/cards.js';
 import { hasSkill } from '../data/heroes.js';
 import { applyDamage } from './damage.js';
@@ -85,9 +85,40 @@ export function shaLimitLeft(game, player) {
 // ---------- 统一的响应询问 ----------
 // 手里根本打不出所需的牌时直接跳过询问，避免对玩家反复弹出无意义的选择框。
 async function askResponse(game, player, req) {
-  if (!canRespondWith(player, req.type)) return null;
+  const own = canRespondWith(player, req.type);
+  // 主公技 激将/护驾：可先令同势力角色代为打出（视为由主公使用或打出）
+  const helpers = lordHelpers(game, player, req.type);
+  if (helpers.length) {
+    const skill = req.type === 'sha' ? 'jijiang' : 'hujia';
+    const invoke = await game.ask(player, 'askSkillInvoke', skill, { req, hasOwn: own });
+    if (invoke) {
+      const v = await askHelpers(game, player, skill, req.type, helpers, req);
+      if (v) return v;
+    }
+  }
+  if (!own) return null;
   const r = await game.ask(player, 'askRespondCard', req);
   return validResponse(player, r, req.type);
+}
+
+// 依次询问同势力角色是否代主公打出所需的牌；返回代出的虚拟牌（已从代出者处移除）
+async function askHelpers(game, lord, skill, type, helpers, req = {}) {
+  const sname = skill === 'jijiang' ? '激将' : '护驾';
+  game.log(`${lord.name} 发动【${sname}】`);
+  for (const h of helpers) {
+    if (game.over || !h.alive) continue;
+    if (!canRespondWith(h, type)) continue;
+    const r = await game.ask(h, 'askRespondCard', { type, reason: skill, info: { lord, orig: req.reason, ...(req.info || {}) } });
+    const v = validResponse(h, r, type);
+    if (v) {
+      h.removeCards(realsOf(v));
+      game.log(`${h.name} 响应【${sname}】，代 ${lord.name} 打出 ${useLabel(v)}`);
+      v.by = h;
+      return v;
+    }
+  }
+  game.log(`无人响应【${sname}】`);
+  return null;
 }
 
 // ---------- 求闪（含八卦阵） ----------
@@ -123,6 +154,7 @@ export async function resolveSlash(game, source, target, vcard, opts = {}) {
   }
   game.log(`${source.name} 对 ${target.name} 使用 ${useLabel(vcard)}`);
   game.pointAt(source, [target]);
+  game.recordRelation(source, target, 'harm');
   const weapon = () => source.equip.weapon?.name;
 
   // 雌雄双股剑：指定异性目标后触发
@@ -258,6 +290,7 @@ export async function resolveJuedou(game, source, target, vcard) {
   }
   game.log(`${source.name} 对 ${target.name} 使用 ${useLabel(vcard)}`);
   game.pointAt(source, [target]);
+  game.recordRelation(source, target, 'harm');
   discardUsed(game, vcard);
   await resolveTrick(game, {
     card: vcard.real, source, target, name: '决斗',
@@ -347,6 +380,10 @@ export async function resolveCardUse(game, player, action) {
     // 指示线：指定目标的锦囊指向目标；群体锦囊（南蛮/万箭/桃园/五谷）指向其余角色
     const aoe = ['nanman', 'wanjian', 'taoyuan', 'wugu'].includes(card.name);
     game.pointAt(player, aoe ? game.others(player) : targets);
+    // 公开行为：顺/拆/乐/借刀对目标有害（拆顺判定区的牌时再改记为有益）
+    if (['shunshou', 'guohe', 'le', 'jiedao'].includes(card.name)) {
+      for (const t of targets) game.recordRelation(player, t, 'harm', card.name === 'jiedao' ? 0.5 : 1);
+    }
   }
   game.notify();
 
@@ -387,6 +424,7 @@ export async function resolveCardUse(game, player, action) {
           if (!pick || pick.length === 0) return;
           const c = game.takeCardFromArea(target, pick[0]);
           if (!c) return;
+          if (['le', 'shandian'].includes(pick[0])) game.recordRelation(player, target, 'help', 2);
           // 处理区同时展示被拿走的牌（官方语义），再进入手牌
           if (game.lastAction) game.lastAction.spent = [c];
           player.hand.push(c);
@@ -408,6 +446,7 @@ export async function resolveCardUse(game, player, action) {
           if (!pick || pick.length === 0) return;
           const c = game.takeCardFromArea(target, pick[0]);
           if (!c) return;
+          if (['le', 'shandian'].includes(pick[0])) game.recordRelation(player, target, 'help', 2);
           // 先让处理区展示被拆掉的牌，再置入弃牌堆（discardCards 内部会 notify）
           if (game.lastAction) game.lastAction.spent = [c];
           game.discardCards([c]);
@@ -571,6 +610,7 @@ export async function useSkill(game, player, action) {
     opp.hand.push(...cards);
     player.flags.rendeGiven += cards.length;
     game.pointAt(player, [opp]);
+    game.recordRelation(player, opp, 'help');
     // 动画提示：这批牌是「交给」对方，UI 幽灵飞向对方而非弃牌堆
     game.lastGive = { ids: cards.map(c => c.id), to: opp.seat };
     game.log(`${player.name} 发动【仁德】，将 ${cards.map(cardLabel).join('、')} 交给 ${opp.name}`);
@@ -578,6 +618,15 @@ export async function useSkill(game, player, action) {
       player.flags.rendeHealed = true;
       game.heal(player, 1);
     }
+  } else if (action.skillId === 'jijiang') {
+    // 出牌阶段发动激将：令蜀势力角色代出一张【杀】，视为由主公对目标使用（计入次数）
+    const target = action.targets?.[0];
+    if (!canUseJijiang(game, player) || !target || !target.alive || !canTarget(game, player, target, 'sha')) return;
+    const v = await askHelpers(game, player, 'jijiang', 'sha', lordHelpers(game, player, 'sha'));
+    if (!v) { player.flags.jijiangFailed = true; return; }
+    game.lastAction = { player, card: v, targets: [target] };
+    player.flags.shaUsed = (player.flags.shaUsed || 0) + 1;
+    await resolveSlash(game, player, target, v);
   } else if (action.skillId === 'zhiheng') {
     if (player.flags.zhihengUsed) return;
     // 官方「弃置任意张牌」不限手牌，装备区的牌同样可以弃置

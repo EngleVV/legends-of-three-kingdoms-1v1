@@ -1,7 +1,7 @@
 // 官方标准版牌堆 104 张 + EX 4 张（寒冰剑、仁王盾、红桃Q【闪电】、方片Q【无懈可击】）= 108 张
 // type: basic | trick | delayed | equip
 // subType（装备）: weapon | armor | horse+ | horse-
-import { hasSkill } from './heroes.js';
+import { hasSkill, hasLordSkill, LORD_SKILL_KINGDOM } from './heroes.js';
 
 export const CARD_NAME = {
   sha: '杀', shan: '闪', tao: '桃',
@@ -280,6 +280,21 @@ export function canRespondWith(player, type) {
       || canZhangbaPair(player);
   }
   return false;
+}
+
+// ---------- 主公技：激将 / 护驾 ----------
+// 需要 type（'sha'|'shan'）时可代为打出的其他同势力角色（按座位顺序）
+export function lordHelpers(game, player, type) {
+  const skill = type === 'sha' ? 'jijiang' : type === 'shan' ? 'hujia' : null;
+  if (!skill || !game || !hasLordSkill(player, skill)) return [];
+  return game.others(player).filter(p => p.hero.kingdom === LORD_SKILL_KINGDOM[skill]);
+}
+
+// 出牌阶段发动激将（令蜀势力角色代出【杀】）：需仍可出【杀】、有合法目标、本阶段未因无人响应而失败
+export function canUseJijiang(game, player) {
+  return lordHelpers(game, player, 'sha').length > 0
+    && shaLeftOf(player) > 0 && !player.flags.jijiangFailed
+    && game.others(player).some(t => canTarget(game, player, t, 'sha'));
 }
 
 // ---------- 出牌阶段可用性 ----------
