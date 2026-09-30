@@ -159,5 +159,34 @@ const before = to.hand.length;
 click(btn('confirm-target')); await sleep(30);
 check(to.hand.length === before + 1, `交给了所选的 ${to.name}`);
 
+console.log('\n== 5) 离间：按顺序选两名男性角色（先选的是【决斗】目标） ==');
+await ensurePlay();
+normalize();
+{
+  const { HEROES } = await import('../src/data/heroes.js');
+  me.hero = { ...HEROES.diaochan };
+  me.flags.used = {};
+  // 让其余角色都是男性且有手牌（避免空城）
+  const males = ['zhangfei', 'caocao', 'lvbu', 'sunquan'];
+  g.others(me).forEach((p, i) => { p.hero = { ...HEROES[males[i]] }; p.name = HEROES[males[i]].name; });
+  me.hand = [grab('shan')];
+  g.notify(); await sleep(10);
+  click(btn('skill-lijian')); await sleep(10);
+  click($('#hand-row .card.selectable')); await sleep(10);
+  const [a, b] = g.others(me);
+  click(seatEl(a.seat)); await sleep(10);
+  check($('#banner').textContent.includes(`请选择对 ${a.name} 使用【决斗】的角色`), '选第一名后提示选择决斗的使用者');
+  check(!seatEl(a.seat).classList.contains('targetable'), '已选的角色不能再选');
+  check(btn('confirm-target').disabled, '只选一名时「确定」不可用');
+  click(seatEl(b.seat)); await sleep(10);
+  check($('#banner').textContent.includes(`视为 ${b.name} 对 ${a.name} 使用【决斗】`), '两名选齐后写明谁对谁决斗');
+  click(seatEl(a.seat)); await sleep(10);
+  check(window.__ui().pending.targets.length === 0, '再点第一名会撤销（连同其后的选择）');
+  click(seatEl(a.seat)); click(seatEl(b.seat)); await sleep(10);
+  const logs0 = $('#log').textContent.length;
+  click(btn('confirm-target')); await sleep(40);
+  check($('#log').textContent.slice(logs0 - 200).includes('发动【离间】'), '确定后发动离间');
+}
+
 console.log(`\n结果：${fails === 0 ? '全部通过' : fails + ' 项失败'}`);
 process.exit(fails === 0 ? 0 : 1);

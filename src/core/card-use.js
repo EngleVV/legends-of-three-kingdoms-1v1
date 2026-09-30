@@ -271,8 +271,9 @@ function luoyiDamage(source, base) {
 async function liuli(game, source, target, vcard) {
   if (!hasSkill(target, 'liuli') || game.over) return target;
   const hasOne = target.hand.length + Object.values(target.equip).filter(Boolean).length > 0;
+  // 新目标：大乔攻击范围内、不是此【杀】的使用者；不能成为【杀】目标的角色（空城）除外
   const candidates = game.others(target).filter(p => p.seat !== source.seat
-    && inAttackRange(target, p, game) && canTarget(game, source, p, 'sha'));
+    && inAttackRange(target, p, game) && !(hasSkill(p, 'kongcheng') && p.hand.length === 0));
   if (!hasOne || !candidates.length) return target;
   const pick = await game.ask(target, 'askChoosePlayers', {
     reason: 'liuli', candidates, min: 1, max: 1, optional: true, info: { source, card: vcard },
@@ -748,7 +749,7 @@ export async function useSkill(game, player, action) {
       game.log(`${t.name} 获得并展示了 ${cardLabel(c)}`);
       if (c.suit !== chosen) {
         game.log('花色不同，【反间】生效');
-        await applyDamage(game, player, t, 1, null);
+        await applyDamage(game, player, t, 1, null, 'normal', '反间');
       } else {
         game.log('花色相同，【反间】无效');
       }

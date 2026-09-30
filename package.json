@@ -7,7 +7,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/",
-    "test:rules": "node tests/ui-rules-check.js && node tests/ui-identity-check.js",
+    "test:rules": "node tests/ui-rules-check.js && node tests/ui-identity-check.js && node tests/ui-skills-check.js",
     "test:play": "node tests/ui-dom.js 16",
     "test:play5": "node tests/ui-dom.js 8 identity",
     "test:drag": "node tests/ui-drag.js",

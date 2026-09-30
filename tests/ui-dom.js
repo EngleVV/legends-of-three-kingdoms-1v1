@@ -10,6 +10,8 @@ const MODE = process.argv[3] || '1v1';
 
 // 覆盖统计：日志中出现即记为已覆盖
 const COVERAGE_KEYS = [
+  '突袭', '裸衣', '天妒', '遗计', '刚烈', '倾国', '洛神', '龙胆', '铁骑', '集智', '奇袭',
+  '苦肉', '英姿', '反间', '国色', '流离', '连营', '结姻', '枭姬', '急救', '青囊', '离间', '闭月',
   '仁德', '奸雄', '制衡', '观星', '空城', '反馈', '鬼才',
   '八卦阵', '雌雄双股剑', '贯石斧', '闪电', '借刀杀人',
   '南蛮入侵', '万箭齐发', '桃园结义', '五谷丰登', '无中生有',
@@ -88,12 +90,16 @@ async function playUntilOver(heroId) {
     if (!acted && seatEl) { click(seatEl); acted = true; }
     // 确认类：先选牌再确认
     if (!acted) {
-      const name = ['confirm-respond', 'confirm-peach', 'confirm-nullify', 'confirm-judge-replace', 'confirm-pick']
+      const name = ['confirm-respond', 'confirm-peach', 'confirm-nullify', 'confirm-judge-replace', 'confirm-pick', 'confirm-players', 'confirm-skill']
         .find(hasAction);
       if (name) {
         const btn = findAction(name);
         if (!btn.disabled) { click(btn); acted = true; }
         else if (handUnselected.length) { click(handUnselected[0]); acted = true; }
+        else if ($('.seat.targetable') || $('#self-row.targetable .avatar') || $('#opp-row.targetable .avatar')) {
+          click($('.seat.targetable') || $('#self-row.targetable .avatar') || $('#opp-row.targetable .avatar')); acted = true;
+        }
+        else if ($('#self-row .card.selectable:not(.selected)')) { click($('#self-row .card.selectable:not(.selected)')); acted = true; }
         else if (name === 'confirm-pick' && hasAction('cancel')) { click(findAction('cancel')); acted = true; }
       }
     }
@@ -104,7 +110,7 @@ async function playUntilOver(heroId) {
       acted = true;
     }
     if (!acted) {
-      const zoneBtn = actions.find(b => b.dataset.action.startsWith('zone:') || b.dataset.action.startsWith('wugu:'));
+      const zoneBtn = actions.find(b => /^(zone|wugu|suit):/.test(b.dataset.action));
       if (zoneBtn) { click(zoneBtn); acted = true; }
     }
     if (!acted && hasAction('confirm-play')) { click(findAction('confirm-play')); acted = true; }
@@ -151,7 +157,8 @@ async function playUntilOver(heroId) {
 }
 
 let pass = 0;
-const heroes = ['liubei', 'caocao', 'sunquan', 'guanyu', 'zhugeliang', 'zhangfei', 'simayi', 'lvbu'];
+const { HERO_LIST } = await import('../src/data/heroes.js');
+const heroes = HERO_LIST.map(h => h.id);
 for (let i = 0; i < rounds; i++) {
   const r = await playUntilOver(heroes[i % heroes.length]);
   if (r.ok) { pass++; console.log(`局 ${i + 1} (${heroes[i % heroes.length]}): 完成 (${r.ms}ms)`); }

@@ -7,7 +7,7 @@ import { makeVirtual } from '../core/card-use.js';
 import { dealRoles, lordCandidates, heroChoices, assignRest, LORD_HEROES } from '../core/identity.js';
 import { shuffle } from '../core/deck.js';
 import {
-  renderGame, renderSetup, renderResult, directUseAction, equipSelectable, targetSpec, usingAsSha,
+  renderGame, renderSetup, renderResult, directUseAction, equipSelectable, targetSpec, usingAs, pickPlayerSpec,
 } from './render.js';
 import { snapshotFx, playFx, showTargetPreview } from './animate.js';
 
@@ -67,7 +67,7 @@ function render() {
     const held = id => me.hand.some(h => h.id === id)
       || Object.values(me.equip).some(e => e && e.id === id);
     pend.selected = pend.selected.filter(c => held(c.id));
-    if (!pend.selected.length) pend.asSha = false;
+    if (!pend.selected.length) pend.asName = null;
   }
   normalizeTargets();
   snapshotFx(game);          // 重绘前：记录卡牌/体力/回合状态，供动画差值
@@ -76,7 +76,7 @@ function render() {
   playFx(game);              // 重绘后：卡牌飞行 / 飘字 / 震动 / 回合横幅
   // 已选目标：从自己的头像向目标画常驻指示线（官方选目标时的指示器）
   const p2 = ui?.pending;
-  const live = p2?.mode === 'play' && !game.over;
+  const live = (p2?.mode === 'play' || p2?.mode === 'pick-player') && !game.over;
   showTargetPreview(game.players[0].seat,
     live ? (p2.targets || []).map(t => t.seat) : [], live ? p2.victim?.seat ?? null : null);
   if (game.over && !document.getElementById('overlay')) renderResult(game);
@@ -89,6 +89,17 @@ function normalizeTargets() {
   pend.targets = pend.targets || [];
   const first = targetSpec(game, { ...pend, targets: [], victim: null });
   if (!first) { pend.targets = []; pend.victim = null; return; }
+  // 多目标（离间）：逐个校验已选目标，保留仍合法的前缀；不自动选中
+  if (first.max > 1) {
+    const kept = [];
+    for (const t of pend.targets) {
+      const sp = targetSpec(game, { ...pend, targets: kept });
+      if (sp && sp.candidates.some(c => c.seat === t.seat)) kept.push(t); else break;
+    }
+    pend.targets = kept;
+    pend.victim = null;
+    return;
+  }
   const inList = (list, p) => !!p && list.some(x => x.seat === p.seat);
   if (pend.targets[0] && !inList(first.candidates, pend.targets[0])) { pend.targets = []; pend.victim = null; }
   if (!pend.targets.length && first.candidates.length === 1) pend.targets = [first.candidates[0]];
@@ -105,11 +116,13 @@ function normalizeTargets() {
 function buildAction(pend) {
   const targets = [...(pend.targets || [])];
   const sel = pend.selected;
-  if (pend.skillId === 'rende') return { skillId: 'rende', cards: [...sel], targets };
-  if (pend.skillId === 'jijiang') return { skillId: 'jijiang', targets };
   if (pend.skillId === 'zhangba') return { cards: [...sel], card: sel[0], targets };
-  if (usingAsSha(game, pend)) return { card: makeVirtual(sel[0], 'sha'), targets };
-  return { card: sel[0], targets, ...(pend.victim ? { victim: pend.victim } : {}) };
+  if (pend.skillId) return { skillId: pend.skillId, cards: [...sel], targets };
+  const victim = pend.victim ? { victim: pend.victim } : {};
+  // 转化技：以转化后的牌名使用（引擎会重新校验转化来源）
+  const as = usingAs(game, pend);
+  if (as) return { card: makeVirtual(sel[0], as), targets, ...victim };
+  return { card: sel[0], targets, ...victim };
 }
 
 function confirmTarget() {
@@ -193,6 +206,12 @@ function onBannerAction(action) {
     finish([action.slice(5)]);
     return;
   }
+  if (action.startsWith('suit:')) {
+    if (pend.mode === 'pick-suit') finish(action.slice(5));
+    return;
+  }
+  if (action.startsWith('use-as:')) { ui.useAs(action.slice(7) || null); render(); return; }
+  if (action.startsWith('skill-')) { ui.startSkill(action.slice(6)); render(); return; }
   if (action.startsWith('wugu:')) {
     if (pend.mode !== 'pick-wugu') return;
     const card = pend.opts.opts.info.candidates.find(c => c.id === Number(action.slice(5)));
@@ -202,15 +221,15 @@ function onBannerAction(action) {
 
   switch (action) {
     case 'confirm-play': finish({ card: pend.selected[0], targets: [] }); break;
-    case 'use-as-sha': ui.useAsSha(); render(); break;
+    case 'use-as-sha': ui.useAs('sha'); render(); break;
     case 'end-play': finish(null); break;
     case 'cancel-skill': ui.backToPlay(); render(); break;
-    case 'skill-zhiheng': ui.startSkill('zhiheng'); render(); break;
-    case 'skill-rende': ui.startSkill('rende'); render(); break;
-    case 'skill-zhangba': ui.startSkill('zhangba'); render(); break;
-    case 'skill-jijiang': ui.startSkill('jijiang'); render(); break;
     case 'confirm-target': confirmTarget(); break;
-    case 'confirm-zhiheng': finish({ skillId: 'zhiheng', cards: pend.selected, targets: [] }); break;
+    case 'confirm-zhiheng':
+    case 'confirm-skill':
+      if (directUseAction(game, pend) === action) finish({ skillId: pend.skillId, cards: [...pend.selected], targets: [] });
+      break;
+    case 'confirm-players': finish([...(pend.targets || [])]); break;
     case 'confirm-respond': {
       const req = pend.opts.req;
       if (pend.selected.length === 2) {
@@ -257,9 +276,10 @@ function onSelfEquipClick(cardId) {
   const selected = pend.selected.some(c => c.id === card.id);
   if (!selected && !equipSelectable(game, me, pend, card)) return;
   if ((pend.mode === 'play' && !pend.skillId) || pend.mode === 'respond') {
-    // 武圣：装备区的牌只能当【杀】，单选
+    // 装备区的牌只能经转化技使用或打出（武圣/奇袭/国色），单选；转化名由 usingAs 自动判定
     pend.selected = selected ? [] : [card];
-    pend.asSha = !selected && pend.mode === 'play';
+    pend.asName = null;
+    pend.targets = [];
   } else {
     ui.toggleCard(card);
   }
@@ -280,11 +300,32 @@ function onGuanxingClick(cardId) {
 // 点已选但当前阶段不可再选的角色（如借刀的持武器者）→ 取消该选择
 function onSeatClick(seat) {
   const pend = ui?.pending;
-  if (!pend || pend.mode !== 'play' || !game) return;
+  if (!pend || !game) return;
+  const p = game.players[seat];
+  // 选择角色（突袭/遗计/流离）：点击切换选中，单选时直接改选
+  if (pend.mode === 'pick-player') {
+    const sp = pickPlayerSpec(pend);
+    const i = pend.targets.indexOf(p);
+    if (i >= 0) pend.targets.splice(i, 1);
+    else if (pend.opts.opts.candidates.includes(p)) {
+      if ((pend.opts.opts.max ?? 1) <= 1) pend.targets = [p];
+      else if (sp.candidates.includes(p)) pend.targets.push(p);
+    }
+    render();
+    return;
+  }
+  if (pend.mode !== 'play') return;
   const spec = targetSpec(game, pend);
   if (!spec) return;
-  const p = game.players[seat];
   const isCand = spec.candidates.some(c => c.seat === seat);
+  // 多目标（离间）：按顺序点选，再点已选者取消（连同其后的选择）
+  if (spec.max > 1) {
+    const i = pend.targets.findIndex(t => t.seat === seat);
+    if (i >= 0) pend.targets = pend.targets.slice(0, i);
+    else if (isCand) pend.targets = [...pend.targets, p];
+    render();
+    return;
+  }
   if (spec.stage === 'victim') {
     if (pend.victim?.seat === seat && spec.ready) { confirmTarget(); return; }
     if (isCand) pend.victim = p;
@@ -387,6 +428,7 @@ function endDrag(commit) {
     const p = game.players[d.zone.seat];
     const spec = targetSpec(game, pend);
     if (spec?.stage === 'victim') pend.victim = p;
+    else if (spec?.max > 1) { if (!pend.targets.includes(p)) pend.targets.push(p); }
     else { pend.targets = [p]; pend.victim = null; }
     normalizeTargets();
     if (targetSpec(game, pend)?.ready) { confirmTarget(); return; }
@@ -396,7 +438,7 @@ function endDrag(commit) {
   if (commit && d.zone?.zone === 'use') { onBannerAction(directUseAction(game, pend)); return; }
   // 未放到有效区域：牌回到手中，恢复拖拽前的选择
   pend.selected = d.prevSelected;
-  pend.asSha = d.prevAsSha;
+  pend.asName = d.prevAsName;
   render();
 }
 
@@ -421,7 +463,7 @@ document.addEventListener('pointermove', e => {
     const card = game?.players[0].hand.find(c => c.id === drag.id);
     if (!pend || pend !== drag.pend || !card) { drag = null; return; }
     drag.prevSelected = [...pend.selected];
-    drag.prevAsSha = pend.asSha;
+    drag.prevAsName = pend.asName;
     // 拖动未选中的牌时，先按点击规则把它加入选择
     if (!pend.selected.some(c => c.id === card.id)) ui.toggleCard(card);
     drag.active = true;
@@ -558,7 +600,7 @@ document.addEventListener('click', e => {
   // 武将（指定目标）：身份局点整个座位，1v1 点头像；借刀杀人的【杀】目标可以是自己
   const seatEl = e.target.closest('.seat[data-seat]')
     || (e.target.closest('#opp-row .avatar, #self-row .avatar') && e.target.closest('[data-seat]'));
-  if (seatEl && ui?.pending?.mode === 'play' && targetSpec(game, ui.pending)) {
+  if (seatEl && ((ui?.pending?.mode === 'play' && targetSpec(game, ui.pending)) || ui?.pending?.mode === 'pick-player')) {
     onSeatClick(Number(seatEl.dataset.seat));
     return;
   }

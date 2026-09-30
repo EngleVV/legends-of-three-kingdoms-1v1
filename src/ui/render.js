@@ -3,9 +3,10 @@ import {
   CARD_NAME, cardLabel, isRed, canTarget, distance, attackRange,
   canUseInPlayPhase, canUseZhangbaSha, canUseAsSha, canZhangbaPair, canUseCardAs,
   shaLeftOf, shaLimitOf, EQUIP_RANGE, NEED_TARGET, legalTargets, zhangbaTargets,
-  canJiedaoVictim, canUseJijiang,
+  canJiedaoVictim, canUseJijiang, conversionNames, conversionOf, judgeName, typeOfName,
 } from '../data/cards.js';
-import { hasSkill, HEROES, HERO_LIST } from '../data/heroes.js';
+import { hasSkill, HEROES, HERO_LIST, skillName, skillDesc } from '../data/heroes.js';
+import { ACTIVE_SKILLS, activeSkillsOf, canUseSkill, skillTargetCandidates } from '../data/active-skills.js';
 import { realsOf } from '../core/util.js';
 import { ROLE_NAME, SIDE_NAME } from '../core/identity.js';
 
@@ -69,8 +70,10 @@ function equipHtml(p, pick = null, canPick = () => false) {
   }).join('');
 }
 
+// 判定区的牌按「生效牌名」显示（国色的方块牌显示为【乐不思蜀】）
+const asJudge = c => (c.delayedAs ? { ...c, name: c.delayedAs, type: 'delayed' } : c);
 function judgeHtml(p) {
-  const cards = p.judgeZone.map(c => cardHtml(c, { small: true })).join('');
+  const cards = p.judgeZone.map(c => cardHtml(asJudge(c), { small: true })).join('');
   return `<div class="zone judge" data-zone="judge">
     <div class="zone-label">判定区</div>
     <div class="mini-cards">${cards || '<span class="slot-ph">—</span>'}</div>
@@ -96,9 +99,15 @@ function roleBadge(game, p) {
 }
 
 // 武将技能名（主公额外显示主公技）
+function skillIdsOf(p) {
+  return [...p.hero.skills, ...(p.role === 'lord' ? p.hero.lordSkills || [] : [])];
+}
 function skillNamesOf(p) {
-  const ids = [...p.hero.skills, ...(p.role === 'lord' ? p.hero.lordSkills || [] : [])];
-  return ids.map(s => SKILL_CNAME[s] || s);
+  return skillIdsOf(p).map(skillName);
+}
+// 技能名（悬停显示技能描述）
+function skillTagsHtml(ids, sep = ' · ') {
+  return ids.map(id => `<span class="skill-tag" title="${skillName(id)}：${skillDesc(id)}">${skillName(id)}</span>`).join(sep);
 }
 
 function playerZoneHtml(game, p, isSelf, equipPick = null, canPick = () => false) {
@@ -119,7 +128,7 @@ function playerZoneHtml(game, p, isSelf, equipPick = null, canPick = () => false
       </div>
       ${hpHtml(p)}
       <div class="think-bar"><i></i></div>
-      <div class="skills">${skillNames}</div>
+      <div class="skills">${skillTagsHtml(skillIdsOf(p))}</div>
     </div>
     <div class="zones">
       ${judgeHtml(p)}
@@ -129,11 +138,8 @@ function playerZoneHtml(game, p, isSelf, equipPick = null, canPick = () => false
   `;
 }
 
-const SKILL_CNAME = {
-  rende: '仁德', jianxiong: '奸雄', zhiheng: '制衡', wusheng: '武圣',
-  paoxiao: '咆哮', guanxing: '观星', kongcheng: '空城', fankui: '反馈',
-  guicai: '鬼才', wushuang: '无双', jijiang: '激将', hujia: '护驾', jiuyuan: '救援',
-};
+// 技能名统一取自 heroes.js 的 SKILL_INFO；此处保留兼容名
+const SKILL_CNAME = new Proxy({}, { get: (_, id) => skillName(id) });
 
 // ---------- 身份局紧凑座位 ----------
 // 头像 + 身份徽章 + 勾玉 + 手牌数 + 与你的距离 + 装备小条 + 判定区小标
@@ -148,7 +154,7 @@ function seatMiniHtml(game, p, cls) {
     const rank = RANK_STR[c.rank] ?? c.rank;
     return `<div class="eq-line ${isRed(c) ? 'red' : 'black'}" data-card-id="${c.id}"><span class="eq-slot">${SLOT_LABEL[slot]}</span><span class="eq-name">${CARD_NAME[c.name] || c.name}</span><span class="eq-suit">${c.suit}${rank}</span></div>`;
   }).join('');
-  const judge = p.judgeZone.map(c => `<span class="jz-tag" data-card-id="${c.id}">${c.name === 'le' ? '乐' : c.name === 'shandian' ? '电' : (CARD_NAME[c.name] || '?')[0]}</span>`).join('');
+  const judge = p.judgeZone.map(c => { const n = judgeName(c); return `<span class="jz-tag" data-card-id="${c.id}">${n === 'le' ? '乐' : n === 'shandian' ? '电' : (CARD_NAME[n] || '?')[0]}</span>`; }).join('');
   const dist = p.alive ? distance(me, p, game) : null;
   return `
     <div class="seat mini ${cls.join(' ')}${isTurn ? ' acting' : ''}${thinking ? ' thinking' : ''}${p.alive ? '' : ' died'}" data-seat="${p.seat}">
@@ -167,7 +173,7 @@ function seatMiniHtml(game, p, cls) {
       </div>
       <div class="seat-side">
         <div class="seat-meta"><span class="hand-n"><i class="cardback"></i>${p.hand.length}</span>${dist ? `<span class="dist">距离 ${dist}</span>` : ''}</div>
-        <div class="seat-skills">${skillNamesOf(p).join(' ')}</div>
+        <div class="seat-skills">${skillTagsHtml(skillIdsOf(p), ' ')}</div>
         <div class="seat-equips" data-zone="equip">${eq || '<span class="eq-none">无装备</span>'}</div>
       </div>
     </div>`;
@@ -183,18 +189,20 @@ export function othersForDisplay(game) {
 }
 
 // 自己装备区的某张牌当前可否点选：
-//   制衡（弃置任意张牌）、贯石斧（弃两张牌，不含贯石斧本身）、
-//   武圣（红色装备牌当【杀】使用或打出）
+//   可弃置装备的主动技能（制衡/离间）、贯石斧（不含其本身）、流离，
+//   以及允许装备作素材的转化技（武圣当杀、奇袭当拆、国色当乐、急救当桃）
 export function equipSelectable(game, me, pend, card) {
   if (!pend || !card) return false;
-  if (pend.mode === 'play' && pend.skillId === 'zhiheng') return true;
+  if (pend.mode === 'play' && pend.skillId) {
+    const spec = ACTIVE_SKILLS[pend.skillId];
+    return spec?.cards.zone === 'any' && (pend.selected.length < spec.cards.max || pend.selected.some(c => c.id === card.id));
+  }
   if (pend.mode === 'pick-hand' && pend.opts.opts.includeEquip) {
     return !(me.equip.weapon?.name === 'guanshi' && card.id === me.equip.weapon.id);
   }
-  if (pend.mode === 'play' && !pend.skillId) {
-    return canUseAsSha(me, card) && canUseInPlayPhase(game, me, card, 'sha');
-  }
-  if (pend.mode === 'respond' && pend.opts.req.type === 'sha') return canUseAsSha(me, card);
+  if (pend.mode === 'play') return conversionNames(me, card, game).some(n => canUseInPlayPhase(game, me, card, n));
+  if (pend.mode === 'respond') return canUseCardAs(me, card, pend.opts.req.type, game);
+  if (pend.mode === 'peach') return canUseCardAs(me, card, 'tao', game);
   return false;
 }
 
@@ -208,8 +216,12 @@ export function isEquipped(me, card) {
 // 一张牌可被点选的情形：① 能以本名使用；② 能被武圣转化为【杀】。
 // 丈八蛇矛的双牌【杀】需先点「丈八蛇矛」按钮（官方式装备技能），再选两张手牌。
 function playableCheck(game, p, card) {
-  return canUseInPlayPhase(game, p, card)
-    || (canUseAsSha(p, card) && canUseInPlayPhase(game, p, card, 'sha'));
+  return canUseInPlayPhase(game, p, card) || usableConversions(game, p, card).length > 0;
+}
+
+// 该牌在出牌阶段可经转化技使用的牌名（龙胆当杀、奇袭当拆、国色当乐……）
+export function usableConversions(game, p, card) {
+  return conversionNames(p, card, game).filter(n => canUseInPlayPhase(game, p, card, n));
 }
 
 // 距离 / 攻击范围 / 杀次数 提示
@@ -228,23 +240,27 @@ function rangeInfoHtml(game) {
 }
 
 
-function respondCandidates(p, req) {
+function respondCandidates(game, p, req) {
   if (!req) return [];
-  // 能单独当所需牌打出的（牌名相符或武圣转化）
-  const direct = p.hand.filter(c => canUseCardAs(p, c, req.type));
+  // 能单独当所需牌打出的（牌名相符或经转化技）
+  const direct = p.hand.filter(c => canUseCardAs(p, c, req.type, game));
   // 丈八蛇矛：需要【杀】时，任意两张手牌均可作为合成材料
   if (req.type === 'sha' && canZhangbaPair(p)) return p.hand;
   return direct;
 }
 
-// 已选的单张牌是否以【杀】名义使用（武圣：手动切换，或该牌本身不可用但可当杀）
-export function usingAsSha(game, pend) {
+// 已选的单张牌以什么牌名使用：手动选了转化（pend.asName）；或该牌本身不能使用、
+// 只有一种可用的转化（如龙胆的【闪】当【杀】、装备区的牌）时自动转化。返回转化名或 null（按本名）。
+export function usingAs(game, pend) {
   const me = game.players[0];
   const sel = pend?.selected?.[0];
-  if (!sel || pend.skillId) return false;
-  return !!pend.asSha || (!canUseInPlayPhase(game, me, sel)
-    && canUseAsSha(me, sel) && canUseInPlayPhase(game, me, sel, 'sha'));
+  if (!sel || pend.skillId || pend.selected.length !== 1) return null;
+  if (pend.asName) return pend.asName;
+  const self = !isEquipped(me, sel) && canUseInPlayPhase(game, me, sel);
+  const conv = usableConversions(game, me, sel);
+  return !self && conv.length ? conv[0] : null;
 }
+export const usingAsSha = (game, pend) => usingAs(game, pend) === 'sha';
 
 // 当前选择的「指定目标」需求（官方流程：选牌 → 点武将选目标 → 确定）。
 // 返回 null 表示无需目标；否则 { name 牌名/技能, stage 'target'|'victim', candidates 当前可选角色, ready 目标已齐 }。
@@ -255,15 +271,20 @@ export function targetSpec(game, pend) {
   const sel = pend.selected;
   const targets = pend.targets || [];
   const one = (name, candidates) => ({ name, stage: 'target', candidates, ready: targets.length === 1 });
-  switch (pend.skillId) {
-    case 'rende': return sel.length ? one('rende', game.others(me)) : null;
-    case 'jijiang': return one('jijiang', game.others(me).filter(t => canTarget(game, me, t, 'sha')));
-    case 'zhangba': return sel.length === 2 ? one('sha', zhangbaTargets(game, me)) : null;
-    case null: case undefined: break;
-    default: return null;
+  if (pend.skillId === 'zhangba') return sel.length === 2 ? one('sha', zhangbaTargets(game, me)) : null;
+  if (pend.skillId) {
+    // 主动技能：牌选够后才进入选目标；多目标（离间）按选择顺序递进
+    const sk = ACTIVE_SKILLS[pend.skillId];
+    if (!sk || !sk.targets.max || sel.length < sk.cards.min) return null;
+    return {
+      name: pend.skillId, stage: 'target', max: sk.targets.max,
+      // 单目标：候选始终为全部合法目标（可改选）；多目标（离间）：按已选递进
+      candidates: skillTargetCandidates(game, me, pend.skillId, sk.targets.max > 1 ? targets : []),
+      ready: targets.length >= sk.targets.min && sel.length <= sk.cards.max,
+    };
   }
   if (sel.length !== 1) return null;
-  const name = usingAsSha(game, pend) ? 'sha' : sel[0].name;
+  const name = usingAs(game, pend) || sel[0].name;
   if (!NEED_TARGET.includes(name)) return null;
   if (name === 'jiedao' && targets[0]) {
     const holder = targets[0];
@@ -281,6 +302,9 @@ export function isOppTargetable(game, pend) {
   return !!spec && spec.candidates.some(p => p !== game.players[0]);
 }
 
+// 无目标主动技能的「确定」动作（制衡沿用旧名）
+export const skillConfirm = id => (id === 'zhiheng' ? 'confirm-zhiheng' : 'confirm-skill');
+
 // 当前选择无需目标即可直接生效时，返回对应的横幅动作；否则返回 null
 export function directUseAction(game, pend) {
   if (!pend) return null;
@@ -288,19 +312,22 @@ export function directUseAction(game, pend) {
   const n = pend.selected.length;
   switch (pend.mode) {
     case 'play': {
-      if (pend.skillId === 'zhiheng') return n > 0 ? 'confirm-zhiheng' : null;
       const spec = targetSpec(game, pend);
       if (spec) return spec.ready ? 'confirm-target' : null;
-      if (pend.skillId !== null || n !== 1 || pend.asSha) return null;
+      // 无目标的主动技能（制衡/苦肉）：牌数满足即可确定
+      const sk = pend.skillId && ACTIVE_SKILLS[pend.skillId];
+      if (sk) return !sk.targets.max && n >= sk.cards.min && n <= sk.cards.max ? skillConfirm(pend.skillId) : null;
+      if (pend.skillId || n !== 1 || usingAs(game, pend)) return null;
       const sel = pend.selected[0];
       return canUseInPlayPhase(game, me, sel) && !NEED_TARGET.includes(sel.name) ? 'confirm-play' : null;
     }
     case 'respond': {
       const req = pend.opts.req;
       const composite = n === 2 && req.type === 'sha' && canZhangbaPair(me);
-      const single = n === 1 && canUseCardAs(me, pend.selected[0], req.type);
+      const single = n === 1 && canUseCardAs(me, pend.selected[0], req.type, game);
       return single || composite ? 'confirm-respond' : null;
     }
+    case 'pick-player': return (pend.targets?.length || 0) >= (pend.opts.opts.min ?? 1) ? 'confirm-players' : null;
     case 'pick-hand': return n === pend.opts.opts.count ? 'confirm-pick' : null;
     case 'peach': return n === 1 ? 'confirm-peach' : null;
     case 'nullify': return n === 1 ? 'confirm-nullify' : null;
@@ -310,10 +337,22 @@ export function directUseAction(game, pend) {
 }
 
 // ---------- 主渲染 ----------
+// 选择角色（突袭/遗计/流离）：与选目标共用座位高亮
+export function pickPlayerSpec(pend) {
+  if (pend?.mode !== 'pick-player') return null;
+  const { candidates = [], max = 1 } = pend.opts.opts;
+  const picked = pend.targets || [];
+  return {
+    name: pend.opts.opts.reason, stage: 'target', max,
+    candidates: picked.length >= max && max > 1 ? [] : candidates.filter(c => !picked.includes(c)),
+    ready: picked.length >= (pend.opts.opts.min ?? 1),
+  };
+}
+
 export function renderGame(game, ui, logs) {
   const me = game.players[0];
   const pend = ui.pending;
-  const spec = targetSpec(game, pend);
+  const spec = targetSpec(game, pend) || pickPlayerSpec(pend);
   // 每名角色在选目标流程中的状态：可选 / 已选 / 不可选
   const picked = new Set([...(pend?.targets || []), pend?.victim].filter(Boolean).map(p => p.seat));
   const seatCls = p => {
@@ -352,25 +391,26 @@ export function renderGame(game, ui, logs) {
   if (pend) {
     selectedIds = new Set(pend.selected.map(c => c.id));
     if (pend.mode === 'play') {
-      if (pend.skillId === 'jijiang') {
-        // 激将只需选目标，不用手牌
-      } else if (pend.skillId) {
-        // 丈八蛇矛至多选两张；已满两张时其余牌不可再选
-        const full = pend.skillId === 'zhangba' && pend.selected.length >= 2;
+      if (pend.skillId) {
+        // 主动技能按技能表的张数上限；丈八蛇矛两张；已选满时其余牌不可再选
+        const max = pend.skillId === 'zhangba' ? 2 : (ACTIVE_SKILLS[pend.skillId]?.cards.max ?? 0);
+        const full = pend.selected.length >= max;
         handSelectable = new Set(me.hand.filter(c => !full || selectedIds.has(c.id)).map(c => c.id));
       } else {
         handSelectable = new Set(me.hand.filter(c => playableCheck(game, me, c)).map(c => c.id));
       }
     } else if (pend.mode === 'respond') {
-      handSelectable = new Set(respondCandidates(me, pend.opts.req).map(c => c.id));
-      // 武圣转化标记：仅标注「牌名不符但可转化」的牌
+      handSelectable = new Set(respondCandidates(game, me, pend.opts.req).map(c => c.id));
+      // 转化标记：仅标注「牌名不符但可转化」的牌（龙胆/倾国/武圣）
       for (const c of me.hand) {
-        if (c.name !== pend.opts.req.type && canUseCardAs(me, c, pend.opts.req.type)) {
+        if (c.name !== pend.opts.req.type && canUseCardAs(me, c, pend.opts.req.type, game)) {
           virtualShaIds.add(c.id);
         }
       }
     } else if (pend.mode === 'peach') {
-      handSelectable = new Set(me.hand.filter(c => c.name === 'tao').map(c => c.id));
+      // 【桃】或急救（回合外红色牌当【桃】）
+      handSelectable = new Set(me.hand.filter(c => canUseCardAs(me, c, 'tao', game)).map(c => c.id));
+      for (const c of me.hand) if (c.name !== 'tao' && handSelectable.has(c.id)) virtualShaIds.add(c.id);
     } else if (pend.mode === 'nullify') {
       handSelectable = new Set(me.hand.filter(c => c.name === 'wuxie').map(c => c.id));
     } else if (pend.mode === 'judge-replace') {
@@ -378,6 +418,10 @@ export function renderGame(game, ui, logs) {
     } else if (pend.mode === 'pick-hand') {
       handSelectable = new Set(me.hand.map(c => c.id));
     }
+  }
+  // 当前正处于选目标流程时，手牌不再可点（点其它牌会改选，官方也允许：保留原样）
+  if (pend?.mode === 'play' && pend.skillId && ACTIVE_SKILLS[pend.skillId]?.cards.max === 0) {
+    handSelectable = new Set();
   }
   handEl.innerHTML = me.hand.map(c =>
     cardHtml(c, {
@@ -509,7 +553,10 @@ function invokePrompt(me, id, info = {}) {
     case 'hanbing': return [`是否发动【寒冰剑】？`, `防止此伤害，改为依次弃置 ${who(info.target, me)} 的两张牌`];
     case 'jijiang': return [`需要打出【杀】，是否发动【激将】？`, `令其他蜀势力角色代你打出${info.hasOwn ? '（你也可以自己出）' : ''}`];
     case 'hujia': return [`需要打出【闪】，是否发动【护驾】？`, `令其他魏势力角色代你打出${info.hasOwn ? '（你也可以自己出）' : ''}`];
-    default: return [`是否发动【${SKILL_CNAME[id] || id}】？`, ''];
+    case 'tieji': return [`是否对 ${who(info.target, me)} 发动【铁骑】？`, '判定为红色，其不能使用【闪】响应此【杀】'];
+    case 'ganglie': return [`是否对 ${who(info.source, me)} 发动【刚烈】？`, skillDesc('ganglie')];
+    case 'tiandu': return [`是否发动【天妒】获得判定牌 ${info.card ? cardLabel(info.card) : ''}？`, ''];
+    default: return [`是否发动【${skillName(id)}】？`, skillDesc(id)];
   }
 }
 
@@ -524,7 +571,9 @@ const ASK_VERB = {
   askRespondCard: a => `打出${cn(a[0]?.type || 'sha')}`,
   askPeach: () => '是否使用【桃】',
   askNullify: () => '是否使用【无懈可击】',
-  askSkillInvoke: a => `是否发动【${SKILL_CNAME[a[0]] || { bagua: '八卦阵', cixiong: '雌雄双股剑', hanbing: '寒冰剑' }[a[0]] || a[0]}】`,
+  askSkillInvoke: a => `是否发动【${{ bagua: '八卦阵', cixiong: '雌雄双股剑', hanbing: '寒冰剑' }[a[0]] || skillName(a[0])}】`,
+  askChoosePlayers: a => ({ tuxi: '是否发动【突袭】', yiji: '【遗计】分配牌', liuli: '是否发动【流离】' }[a[0]?.reason] || '选择角色'),
+  askChooseSuit: () => '选择花色',
   askChooseCards: a => (a[0]?.reason === 'discard-phase' ? `弃置 ${a[0].count} 张手牌` : '选择卡牌'),
   askChooseJudgeReplace: () => '是否发动【鬼才】改判',
   askGuanxing: () => '观星',
@@ -561,57 +610,52 @@ export function bannerHtml(game, ui) {
 
   switch (pend.mode) {
     case 'play': {
-      if (pend.skillId === 'zhiheng') {
+      const spec = targetSpec(game, pend);
+      const sel = pend.selected[0];
+      const sk = pend.skillId && ACTIVE_SKILLS[pend.skillId];
+      hint = rangeInfoHtml(game);
+      // 已选单张牌时可切换的转化（当【杀】/【过河拆桥】/【乐不思蜀】使用、或按原牌使用）
+      const convBtns = () => {
+        if (pend.skillId || !sel || pend.selected.length !== 1) return '';
+        const cur = usingAs(game, pend);
+        const btns = usableConversions(game, me, sel).filter(n => n !== cur)
+          .map(n => btn(`use-as:${n}`, `当${cn(n)}使用`)).join('');
+        const selfOk = !isEquipped(me, sel) && canUseInPlayPhase(game, me, sel);
+        return btns + (cur && selfOk ? btn('use-as:', `按${cn(sel.name)}使用`) : '');
+      };
+      if (spec) {
+        [prompt, hint] = targetPrompt(game, pend, spec);
+        buttons = btn('confirm-target', '确定', { primary: true, disabled: !spec.ready })
+          + convBtns() + btn('cancel-skill', pend.skillId ? '返回' : '取消');
+      } else if (pend.skillId === 'zhangba') {
+        prompt = `【丈八蛇矛】请选择两张手牌当【杀】使用（已选 ${pend.selected.length}/2）`;
+        buttons = btn('cancel-skill', '返回');
+      } else if (sk) {
         const n = pend.selected.length;
-        prompt = `【制衡】请选择任意张牌弃置，然后摸等量的牌${n ? `（已选 ${n} 张）` : ''}`;
-        hint = '手牌与装备区的牌都可以弃置';
-        buttons = btn('confirm-zhiheng', `确定${n ? `（${n}）` : ''}`, { primary: true, disabled: n === 0 }) + btn('cancel-skill', '返回');
+        [prompt, hint] = skillCardPrompt(me, pend.skillId, n);
+        const act = skillConfirm(pend.skillId);
+        buttons = (sk.targets.max ? '' : btn(act, `确定${n ? `（${n}）` : ''}`, { primary: true, disabled: directUseAction(game, pend) !== act }))
+          + btn('cancel-skill', '返回');
+      } else if (sel) {
+        prompt = directUsePrompt(game, me, sel);
+        hint = '点击「确定」或拖动卡牌至牌桌';
+        buttons = btn('confirm-play', '确定', { primary: true }) + convBtns() + btn('cancel-skill', '取消');
       } else {
-        const spec = targetSpec(game, pend);
-        const sel = pend.selected[0];
-        hint = rangeInfoHtml(game);
-        if (spec) {
-          [prompt, hint] = targetPrompt(game, pend, spec);
-          const asShaOk = !pend.skillId && sel && !usingAsSha(game, pend)
-            && canUseAsSha(me, sel) && canUseInPlayPhase(game, me, sel, 'sha');
-          buttons = btn('confirm-target', '确定', { primary: true, disabled: !spec.ready })
-            + (asShaOk ? btn('use-as-sha', '当【杀】使用') : '')
-            + btn('cancel-skill', pend.skillId ? '返回' : '取消');
-        } else if (pend.skillId === 'zhangba') {
-          prompt = `【丈八蛇矛】请选择两张手牌当【杀】使用（已选 ${pend.selected.length}/2）`;
-          buttons = btn('cancel-skill', '返回');
-        } else if (pend.skillId === 'rende') {
-          prompt = '【仁德】请选择任意张手牌，再选择交给哪名角色';
-          hint = rendeHint(me);
-          buttons = btn('cancel-skill', '返回');
-        } else if (sel) {
-          const asShaOk = canUseAsSha(me, sel) && canUseInPlayPhase(game, me, sel, 'sha');
-          prompt = directUsePrompt(game, me, sel);
-          hint = '点击「确定」或拖动卡牌至牌桌';
-          buttons = btn('confirm-play', '确定', { primary: true })
-            + (asShaOk ? btn('use-as-sha', '当【杀】使用') : '')
-            + btn('cancel-skill', '取消');
-        } else {
-          const anyPlayable = me.hand.some(c => playableCheck(game, me, c))
-            || Object.values(me.equip).some(c => c && equipSelectable(game, me, pend, c));
-          const skillOk = (hasSkill(me, 'zhiheng') && !me.flags.zhihengUsed)
-            || (hasSkill(me, 'rende') && me.hand.length > 0) || canUseZhangbaSha(game, me)
-            || canUseJijiang(game, me);
-          prompt = anyPlayable || skillOk
-            ? '出牌阶段，请选择一张卡牌'
-            : '出牌阶段，没有可以使用的牌，请点击「结束出牌」';
-          hint = `${hint} · 可点击或拖动手牌出牌`;
-          const hasActiveSkill = hasSkill(me, 'zhiheng') || hasSkill(me, 'rende');
-          buttons =
-            // 制衡出牌阶段限一次，用过后置灰
-            (hasSkill(me, 'zhiheng') ? btn('skill-zhiheng', '制衡', { disabled: !!me.flags.zhihengUsed }) : '') +
-            (hasSkill(me, 'rende') ? btn('skill-rende', '仁德', { disabled: me.hand.length === 0 }) : '') +
-            // 主公技激将：出牌阶段令蜀势力角色代出【杀】
-            (canUseJijiang(game, me) ? btn('skill-jijiang', '激将') : '') +
-            // 丈八蛇矛：装备技能按钮（官方式），可用时才出现
-            (canUseZhangbaSha(game, me) ? btn('skill-zhangba', '丈八蛇矛') : '') +
-            btn('end-play', '结束出牌', { primary: !hasActiveSkill || !(anyPlayable || skillOk) });
-        }
+        const anyPlayable = me.hand.some(c => playableCheck(game, me, c))
+          || Object.values(me.equip).some(c => c && equipSelectable(game, me, pend, c));
+        const skills = activeSkillsOf(me);
+        const skillOk = skills.some(id => canUseSkill(game, me, id)) || canUseZhangbaSha(game, me);
+        prompt = anyPlayable || skillOk
+          ? '出牌阶段，请选择一张卡牌'
+          : '出牌阶段，没有可以使用的牌，请点击「结束出牌」';
+        hint = `${hint} · 可点击或拖动手牌出牌`;
+        buttons =
+          // 主动技能按钮：不可发动时置灰（如制衡/反间等出牌阶段限一次已用过）；激将只在可用时出现
+          skills.filter(id => id !== 'jijiang' || canUseSkill(game, me, id))
+            .map(id => btn(`skill-${id}`, skillName(id), { disabled: !canUseSkill(game, me, id) })).join('') +
+          // 丈八蛇矛：装备技能按钮（官方式），可用时才出现
+          (canUseZhangbaSha(game, me) ? btn('skill-zhangba', '丈八蛇矛') : '') +
+          btn('end-play', '结束出牌', { primary: !skills.length || !(anyPlayable || skillOk) });
       }
       break;
     }
@@ -623,8 +667,10 @@ export function bannerHtml(game, ui) {
       // 「确定」只在选择确实合法时可用：单张需牌名相符或有转化途径（武圣），
       // 两张则须是丈八蛇矛的合成【杀】。否则玩家会以为响应成功却实际白挨伤害。
       const composite = n === 2 && req.type === 'sha' && canZhangbaPair(me);
-      const single = n === 1 && canUseCardAs(me, pend.selected[0], req.type);
+      const single = n === 1 && canUseCardAs(me, pend.selected[0], req.type, game);
+      const cvName = single && conversionOf(me, pend.selected[0], req.type, game)?.skill;
       if (composite) hint = '【丈八蛇矛】以两张手牌当【杀】打出';
+      else if (cvName) hint = `【${skillName(cvName)}】将 ${cardLabel(pend.selected[0])} 当${cn(req.type)}打出`;
       else if (n === 1 && !single) hint = canZhangbaPair(me)
         ? '该牌不能单独当此牌使用，请再选一张组成【杀】'
         : '该牌不能当此牌使用';
@@ -639,7 +685,9 @@ export function bannerHtml(game, ui) {
       prompt = d === me
         ? `你处于濒死状态，还需 ${need} 个【桃】，是否使用【桃】？`
         : `${d.name} 处于濒死状态，还需 ${need} 个【桃】，是否对其使用【桃】？`;
-      hint = d === me ? '不使用【桃】将阵亡' : '';
+      const pc = pend.selected[0];
+      const via = pc && conversionOf(me, pc, 'tao', game)?.skill;
+      hint = via ? `【${skillName(via)}】将 ${cardLabel(pc)} 当【桃】使用` : d === me ? '不使用【桃】将阵亡' : '';
       buttons = btn('confirm-peach', '确定', { primary: true, disabled: pend.selected.length !== 1 }) + btn('cancel', '不使用');
       break;
     }
@@ -673,11 +721,16 @@ export function bannerHtml(game, ui) {
         hint = '可弃置手牌或装备区的牌（贯石斧除外）';
       } else if (reason === 'cixiong-discard') {
         prompt = `${who(info?.source, me)} 发动了【雌雄双股剑】，请弃置一张手牌，否则其摸一张牌`;
+      } else if (reason === 'ganglie') {
+        prompt = `${who(info?.source, me)} 发动了【刚烈】，请弃置两张手牌，否则受到其造成的 1 点伤害（已选 ${n}/2）`;
+      } else if (reason === 'liuli') {
+        prompt = `【流离】请弃置一张牌，将【杀】转移给 ${who(info?.to, me)}`;
+        hint = '可弃置手牌或装备区的牌';
       } else {
         prompt = `请选择 ${count} 张手牌（已选 ${n}/${count}）`;
       }
       buttons = btn('confirm-pick', '确定', { primary: true, disabled: n !== count }) +
-        (optional ? btn('cancel', reason === 'cixiong-discard' ? '不弃置' : '取消') : '');
+        (optional ? btn('cancel', reason === 'cixiong-discard' ? '不弃置' : reason === 'ganglie' ? '受到伤害' : '取消') : '');
       break;
     }
     case 'pick-zone': {
@@ -700,8 +753,48 @@ export function bannerHtml(game, ui) {
       hint = '拖动牌调整顺序与位置，或点击在两行之间切换';
       break;
     }
+    case 'pick-player': {
+      [prompt, hint] = pickPlayerPrompt(game, pend);
+      const { optional, min = 1 } = pend.opts.opts;
+      buttons = btn('confirm-players', '确定', { primary: true, disabled: (pend.targets?.length || 0) < min })
+        + (optional ? btn('cancel', '不发动') : '');
+      break;
+    }
+    case 'pick-suit': {
+      prompt = `${who(pend.opts.info?.source, me)} 对你发动了【反间】，请选择一种花色`;
+      hint = '随后你获得其一张手牌并展示，花色与所选不同则受到 1 点伤害';
+      break;
+    }
   }
   return `<span class="prompt">${prompt}</span>${hint ? `<span class="hint">${hint}</span>` : ''}<span style="flex:1"></span>${buttons}`;
+}
+
+// 选择角色的提示（突袭/遗计/流离）
+function pickPlayerPrompt(game, pend) {
+  const me = game.players[0];
+  const { reason, info = {}, max = 1 } = pend.opts.opts;
+  const t = pend.targets || [];
+  const names = t.map(p => who(p, me)).join('、');
+  switch (reason) {
+    case 'tuxi': return [t.length ? `【突袭】获得 ${names} 的各一张手牌，点击「确定」` : `【突袭】放弃摸牌，改为获得至多 ${max} 名其他角色的各一张手牌？`, '点击武将选择（再次点击取消），点「不发动」正常摸牌'];
+    case 'yiji': return [`【遗计】将 ${info.card ? cardLabel(info.card) : '这张牌'} 交给一名角色${t.length ? `：${names}` : ''}`, '可以交给自己'];
+    case 'liuli': return [`【流离】${who(info.source, me)} 对你使用了【杀】，是否弃一张牌将其转移给攻击范围内的另一名角色？${t.length ? `→ ${names}` : ''}`, '先选择转移的目标，确定后再选择弃置的牌'];
+    default: return [`请选择角色${t.length ? `：${names}` : ''}`, ''];
+  }
+}
+
+// 主动技能选牌阶段的提示
+function skillCardPrompt(me, id, n) {
+  const sk = ACTIVE_SKILLS[id];
+  const need = sk.cards.max === Infinity ? '任意张' : sk.cards.min === sk.cards.max ? `${sk.cards.min} 张` : `至多 ${sk.cards.max} 张`;
+  const where = sk.cards.zone === 'any' ? '牌（手牌或装备）' : '手牌';
+  const text = {
+    zhiheng: `【制衡】请选择任意张牌弃置，然后摸等量的牌${n ? `（已选 ${n} 张）` : ''}`,
+    rende: '【仁德】请选择任意张手牌，再选择交给哪名角色',
+    kurou: '【苦肉】失去 1 点体力，然后摸两张牌？',
+  }[id] || `【${skillName(id)}】请选择 ${need}${where}${sk.cards.max !== Infinity ? `（已选 ${n}/${sk.cards.max}）` : ''}`;
+  const hint = id === 'zhiheng' ? '手牌与装备区的牌都可以弃置' : id === 'rende' ? rendeHint(me) : skillDesc(id);
+  return [text, hint];
 }
 
 function rendeHint(me) {
@@ -717,8 +810,20 @@ function targetPrompt(game, pend, spec) {
   const t = pend.targets || [];
   const how = '点击武将选择目标（再次点击已选目标或点「确定」出牌），也可拖动卡牌至目标';
   const sel = pend.selected[0];
+  const conv = usingAs(game, pend);
+  const cv = conv && conversionOf(me, sel, conv, game)?.skill;
   const via = pend.skillId === 'zhangba' ? '【丈八蛇矛】两张手牌当'
-    : usingAsSha(game, pend) ? `【武圣】将${isEquipped(me, sel) ? '装备区的' : ''}${cn(sel.name)}当` : '';
+    : conv ? `${cv ? `【${skillName(cv)}】` : ''}将${isEquipped(me, sel) ? '装备区的' : ''}${cn(sel.name)}当` : '';
+  if (pend.mode === 'pick-player') return pickPlayerPrompt(game, pend);
+  if (pend.skillId && !['rende', 'jijiang', 'zhangba'].includes(pend.skillId)) {
+    const name = skillName(pend.skillId);
+    if (pend.skillId === 'lijian') {
+      return [t.length === 0 ? '【离间】请选择【决斗】的目标（第一名男性角色）'
+        : t.length === 1 ? `【离间】请选择对 ${who(t[0], me)} 使用【决斗】的角色`
+        : `【离间】视为 ${who(t[1], me)} 对 ${who(t[0], me)} 使用【决斗】，点击「确定」`, skillDesc('lijian')];
+    }
+    return [t.length ? `【${name}】→ ${names(t)}，点击「确定」` : `【${name}】请选择目标`, skillDesc(pend.skillId)];
+  }
   if (spec.name === 'rende') {
     return [t.length
       ? `【仁德】将 ${pend.selected.length} 张手牌交给 ${names(t)}，点击「确定」`
@@ -811,7 +916,7 @@ function pickerHtml(game, ui) {
     if (equips) sections.push(['装备区', equips]);
     // 反馈/寒冰剑针对「角色的牌」，不含判定区
     if (from !== 'horse' && !noJudge && t.judgeZone.length) {
-      sections.push(['判定区', t.judgeZone.map(c => item(c.name, cardHtml(c, { selectable: true }))).join('')]);
+      sections.push(['判定区', t.judgeZone.map(c => item(judgeName(c), cardHtml(asJudge(c), { selectable: true }))).join('')]);
     }
     // 无懈链期间对方可能把牌打光：无牌可选时允许跳过，避免死局
     const body = sections.length
@@ -822,6 +927,13 @@ function pickerHtml(game, ui) {
     const usedCard = info.card;
     const sub = `${usedCard ? `<span class="pick-used">${cardHtml(usedCard, { small: true })}</span>` : ''}<span>选择 ${t.name} 的一张牌</span>`;
     return panel(title, sub, body, foot, usedCard ? 'pick-with-card' : '');
+  }
+
+  if (pend.mode === 'pick-suit') {
+    const suits = [['♠', '黑桃'], ['♥', '红桃'], ['♣', '梅花'], ['♦', '方片']];
+    const body = `<div class="pick-row suit-row">${suits.map(([s, n]) =>
+      `<button class="suit-btn ${s === '♥' || s === '♦' ? 'red' : 'black'}" data-action="suit:${s}"><span>${s}</span>${n}</button>`).join('')}</div>`;
+    return panel('反间', `${pend.opts.info?.source?.name || ''} 对你发动了【反间】，请选择一种花色`, body);
   }
 
   if (pend.mode === 'guanxing') {
@@ -861,7 +973,7 @@ const ROLE_DESC = {
 };
 
 function heroCardHtml(h, selectedId, lord = false) {
-  const skills = [...h.skills, ...(lord ? h.lordSkills || [] : [])].map(s => SKILL_CNAME[s] || s).join('、');
+  const skills = skillTagsHtml([...h.skills, ...(lord ? h.lordSkills || [] : [])], '、');
   return `
     <div class="hero-card ${h.id === selectedId ? 'selected' : ''}" data-hero="${h.id}">
       <div class="face"><img src="assets/heroes/${h.id}.png" alt="" onerror="this.remove()"></div>
@@ -869,6 +981,15 @@ function heroCardHtml(h, selectedId, lord = false) {
       <div class="kingdom-line">${h.kingdom} · ${h.hp + (lord ? 1 : 0)} 体力</div>
       <div class="skills">${skills}</div>
     </div>`;
+}
+
+// 选中武将的技能说明
+function heroDetailHtml(id) {
+  const h = id && HEROES[id];
+  if (!h) return '<div class="hero-detail empty">点击武将查看技能说明</div>';
+  const rows = [...h.skills, ...(h.lordSkills || [])].map(s =>
+    `<div><b>【${skillName(s)}】</b>${skillDesc(s)}</div>`).join('');
+  return `<div class="hero-detail"><div class="hd-name">${h.name}<span>${h.kingdom} · ${h.hp} 体力 · ${h.gender === 'female' ? '女' : '男'}</span></div>${rows}</div>`;
 }
 
 export function renderSetup(st) {
@@ -887,11 +1008,17 @@ export function renderSetup(st) {
       <div class="role-reveal r-${role}"><span class="role-badge big r-${role}">${ROLE_SHORT[role]}</span>
         <div><div class="role-title">你的身份：${ROLE_NAME[role]}</div><div class="role-desc">${ROLE_DESC[role]}</div></div></div>
       <h2>${lordLine}</h2>
-      <div id="hero-grid">${choices.map(id => heroCardHtml(HEROES[id], st.selectedId, role === 'lord')).join('')}</div>`;
+      <div id="hero-grid">${choices.map(id => heroCardHtml(HEROES[id], st.selectedId, role === 'lord')).join('')}</div>
+      ${heroDetailHtml(st.selectedId)}`;
   } else {
+    // 标准版 25 将按势力分行，下方展示所选武将的技能说明
+    const rows = ['魏', '蜀', '吴', '群'].map(k => `
+      <div class="kingdom-row"><span class="kingdom-label ${KINGDOM_CLASS[k]}">${k}</span>
+        ${HERO_LIST.filter(h => h.kingdom === k).map(h => heroCardHtml(h, st.selectedId)).join('')}</div>`).join('');
     body = `
       <h2>标准版 · 选择你的武将</h2>
-      <div id="hero-grid">${HERO_LIST.map(h => heroCardHtml(h, st.selectedId)).join('')}</div>`;
+      <div id="hero-grid" class="compact">${rows}</div>
+      ${heroDetailHtml(st.selectedId)}`;
   }
   el.innerHTML = `
     <h1>三 国 杀</h1>

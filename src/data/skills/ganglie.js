@@ -32,7 +32,7 @@ export default {
         }
       }
       game.recordRelation(owner, src, 'harm');
-      await applyDamage(game, owner, src, 1, null);
+      await applyDamage(game, owner, src, 1, null, 'normal', '刚烈');
       return null;
     },
   }],
