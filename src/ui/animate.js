@@ -22,7 +22,7 @@ let lastPointSeq = 0;   // 已播放过的指示线序号
 const fxLayer = () => document.getElementById('fx-layer');
 const rectOf = el => el.getBoundingClientRect();
 const zoneOf = el => el.closest('[data-zone]')?.dataset.zone || '';
-const avatarOf = seat => document.querySelector(`${seat === 0 ? '#self-row' : '#opp-row'} .avatar`);
+const avatarOf = seat => document.querySelector(`#table .avatar[data-seat="${seat}"]`);
 const pileRect = which => document.querySelector(`#deck-info .pile:${which}`)?.getBoundingClientRect();
 
 // 卡牌是否真的发生位移（避免无意义动画）
@@ -249,15 +249,15 @@ function playPointFx(game) {
   }
 }
 
-function spawnPointer(a, b) {
+// 构造一条从 a 指向 b 的光箭（起止点收进头像边缘，箭头停在目标头像外沿）
+function makePointer(a, b) {
   const ax = a.left + a.width / 2, ay = a.top + a.height / 2;
   const bx = b.left + b.width / 2, by = b.top + b.height / 2;
   const dx = bx - ax, dy = by - ay;
   const dist = Math.hypot(dx, dy);
-  // 起止点收进头像边缘，箭头停在目标头像外沿
   const inset = Math.min(a.height, b.height) * 0.5 + 6;
   const len = dist - inset * 2;
-  if (len <= 10) return;
+  if (len <= 10) return null;
   const ux = dx / dist, uy = dy / dist;
   const el = document.createElement('div');
   el.className = 'fx-pointer';
@@ -265,6 +265,12 @@ function spawnPointer(a, b) {
   el.style.top = `${ay + uy * inset}px`;
   el.style.width = `${len}px`;
   el.style.transform = `translateY(-50%) rotate(${Math.atan2(dy, dx)}rad)`;
+  return el;
+}
+
+function spawnPointer(a, b) {
+  const el = makePointer(a, b);
+  if (!el) return;
   fxLayer().appendChild(el);
   // 从使用者一侧向目标伸出（clip-path 展开，箭头不被拉伸变形）
   el.animate([
@@ -290,4 +296,37 @@ function spawnTargetRing(b) {
     { opacity: 1, transform: 'scale(1)', offset: 0.78 },
     { opacity: 0, transform: 'scale(1)', offset: 1 },
   ], { duration: POINT, easing: 'ease-out' }).onfinish = () => el.remove();
+}
+
+// 选目标时的常驻指示线：从自己头像指向已选目标；借刀杀人另画「持武器者 → 其【杀】的目标」。
+// 每次重绘后调用，先清除旧的再按当前选择重画；不依赖动画 API，减少动态效果设置下也显示。
+export function showTargetPreview(fromSeat, targetSeats = [], victimSeat = null) {
+  const layer = typeof document !== 'undefined' && fxLayer();
+  if (!layer) return;
+  for (const el of layer.querySelectorAll('.fx-pointer.preview, .fx-target-ring.preview')) el.remove();
+  if (fromSeat == null) return;
+  const link = (a, b) => {
+    const ea = avatarOf(a), eb = avatarOf(b);
+    if (!ea || !eb) return;
+    const ra = rectOf(ea), rb = rectOf(eb);
+    if (!rb.width) return; // 无布局（jsdom）
+    if (a !== b) {
+      const el = makePointer(ra, rb);
+      if (el) { el.classList.add('preview'); layer.appendChild(el); }
+    }
+    spawnRingStatic(rb);
+  };
+  for (const t of targetSeats) link(fromSeat, t);
+  if (victimSeat != null && targetSeats[0] != null) link(targetSeats[0], victimSeat);
+}
+
+function spawnRingStatic(b) {
+  if (!b.width) return;
+  const el = document.createElement('div');
+  el.className = 'fx-target-ring preview';
+  el.style.left = `${b.left - 4}px`;
+  el.style.top = `${b.top - 4}px`;
+  el.style.width = `${b.width + 8}px`;
+  el.style.height = `${b.height + 8}px`;
+  fxLayer().appendChild(el);
 }

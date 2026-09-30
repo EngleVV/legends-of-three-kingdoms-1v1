@@ -3,17 +3,36 @@ import { Game } from '../core/game.js';
 import { UIController } from './ui-controller.js';
 import { AIController } from '../ai/ai-controller.js';
 import { HEROES, HERO_LIST } from '../data/heroes.js';
-import { canUseInPlayPhase, canUseAsSha } from '../data/cards.js';
 import { makeVirtual } from '../core/card-use.js';
+import { dealRoles, lordCandidates, heroChoices, assignRest, LORD_HEROES } from '../core/identity.js';
+import { shuffle } from '../core/deck.js';
 import {
-  renderGame, renderSetup, renderResult, isOppTargetable, directUseAction, equipSelectable,
+  renderGame, renderSetup, renderResult, directUseAction, equipSelectable, targetSpec, usingAsSha,
 } from './render.js';
-import { snapshotFx, playFx } from './animate.js';
+import { snapshotFx, playFx, showTargetPreview } from './animate.js';
 
 let ui = null;
 let game = null;
 let logs = [];
-let selectedHeroId = null;
+// 选将界面状态：mode = '1v1' | 'identity'；identity = { roles, role, choices, lordHeroId }
+const setup = { mode: '1v1', selectedId: null, identity: null };
+const HERO_IDS = HERO_LIST.map(h => h.id);
+
+// 身份局：发身份并准备候选武将（人类固定为 0 号座位）。
+// 主公若是 AI，先由其从主公候选中选将（优先有主公技的武将），人类再从剩余武将中 3 选 1。
+function dealIdentity() {
+  const roles = dealRoles(5);
+  const role = roles[0];
+  let choices, lordHeroId = null;
+  if (role === 'lord') {
+    choices = lordCandidates(HERO_IDS);
+  } else {
+    lordHeroId = shuffle(LORD_HEROES)[0];
+    choices = heroChoices(HERO_IDS, [lordHeroId], 3);
+  }
+  setup.identity = { roles, role, choices, lordHeroId };
+  setup.selectedId = null;
+}
 
 // ---------- 日志 ----------
 function escapeHtml(s) {
@@ -50,28 +69,81 @@ function render() {
     pend.selected = pend.selected.filter(c => held(c.id));
     if (!pend.selected.length) pend.asSha = false;
   }
+  normalizeTargets();
   snapshotFx(game);          // 重绘前：记录卡牌/体力/回合状态，供动画差值
   renderGame(game, ui, logs);
   if (drag?.active) markDragging();
   playFx(game);              // 重绘后：卡牌飞行 / 飘字 / 震动 / 回合横幅
+  // 已选目标：从自己的头像向目标画常驻指示线（官方选目标时的指示器）
+  const p2 = ui?.pending;
+  const live = p2?.mode === 'play' && !game.over;
+  showTargetPreview(game.players[0].seat,
+    live ? (p2.targets || []).map(t => t.seat) : [], live ? p2.victim?.seat ?? null : null);
   if (game.over && !document.getElementById('overlay')) renderResult(game);
+}
+
+// 选目标：剔除已失效的目标；只有一个合法目标时自动选中（1v1 直接点「确定」即可）
+function normalizeTargets() {
+  const pend = ui?.pending;
+  if (!pend || pend.mode !== 'play') return;
+  pend.targets = pend.targets || [];
+  const first = targetSpec(game, { ...pend, targets: [], victim: null });
+  if (!first) { pend.targets = []; pend.victim = null; return; }
+  const inList = (list, p) => !!p && list.some(x => x.seat === p.seat);
+  if (pend.targets[0] && !inList(first.candidates, pend.targets[0])) { pend.targets = []; pend.victim = null; }
+  if (!pend.targets.length && first.candidates.length === 1) pend.targets = [first.candidates[0]];
+  const spec = targetSpec(game, pend);
+  if (spec?.stage === 'victim') {
+    if (pend.victim && !inList(spec.candidates, pend.victim)) pend.victim = null;
+    if (!pend.victim && spec.candidates.length === 1) pend.victim = spec.candidates[0];
+  } else {
+    pend.victim = null;
+  }
+}
+
+// 按当前选择组装出牌动作（与 AI 返回的动作格式一致）
+function buildAction(pend) {
+  const targets = [...(pend.targets || [])];
+  const sel = pend.selected;
+  if (pend.skillId === 'rende') return { skillId: 'rende', cards: [...sel], targets };
+  if (pend.skillId === 'jijiang') return { skillId: 'jijiang', targets };
+  if (pend.skillId === 'zhangba') return { cards: [...sel], card: sel[0], targets };
+  if (usingAsSha(game, pend)) return { card: makeVirtual(sel[0], 'sha'), targets };
+  return { card: sel[0], targets, ...(pend.victim ? { victim: pend.victim } : {}) };
+}
+
+function confirmTarget() {
+  const pend = ui?.pending;
+  const spec = targetSpec(game, pend);
+  if (!spec?.ready) return;
+  finish(buildAction(pend));
 }
 
 // ---------- 对局 ----------
 function startGame() {
-  if (!selectedHeroId) return;
-  const myHero = HEROES[selectedHeroId];
-  const aiChoices = HERO_LIST.filter(h => h.id !== selectedHeroId);
-  const aiHero = aiChoices[Math.floor(Math.random() * aiChoices.length)];
-
+  if (!setup.selectedId) return;
   ui = new UIController();
-  const ai = new AIController(500);
   logs = [];
-  game = new Game({
-    heroes: [myHero, aiHero],
-    controllers: [ui, ai],
-    logger: msg => logs.push({ html: logHtml(msg) }),
-  });
+  const logger = msg => logs.push({ html: logHtml(msg) });
+  if (setup.mode === 'identity') {
+    const { roles, lordHeroId } = setup.identity;
+    // 按座位排武将：0 号为玩家；AI 主公用其选好的武将；其余 AI 随机
+    const heroes = new Array(5).fill(null);
+    heroes[0] = setup.selectedId;
+    const lordSeat = roles.indexOf('lord');
+    if (lordSeat !== 0) heroes[lordSeat] = lordHeroId;
+    const rest = assignRest(HERO_IDS, heroes.filter(Boolean), heroes.filter(x => !x).length);
+    for (let i = 0; i < 5; i++) if (!heroes[i]) heroes[i] = rest.shift();
+    // 4 名 AI：出牌稍慢便于看清，响应更快（见 AIController）
+    const ais = [1, 2, 3, 4].map(() => new AIController(320));
+    game = new Game({
+      heroes: heroes.map(id => HEROES[id]), controllers: [ui, ...ais], mode: 'identity', roles, logger,
+    });
+  } else {
+    const aiChoices = HERO_LIST.filter(h => h.id !== setup.selectedId);
+    const aiHero = aiChoices[Math.floor(Math.random() * aiChoices.length)];
+    game = new Game({ heroes: [HEROES[setup.selectedId], aiHero], controllers: [ui, new AIController(500)], logger });
+  }
   game.onUpdate = render;
 
   document.getElementById('setup').classList.add('hidden');
@@ -98,10 +170,19 @@ function finish(result) {
 // ---------- 事件处理 ----------
 function onBannerAction(action) {
   if (action === 'start-game') { startGame(); return; }
+  if (action.startsWith('mode:')) {
+    setup.mode = action.slice(5);
+    setup.selectedId = null;
+    if (setup.mode === 'identity') dealIdentity();
+    renderSetup(setup);
+    return;
+  }
   if (action === 'restart') {
     document.getElementById('overlay')?.remove();
+    showTargetPreview(null, []);
     game = null; ui = null;
-    renderSetup(selectedHeroId);
+    if (setup.mode === 'identity') dealIdentity();
+    renderSetup(setup);
     return;
   }
 
@@ -127,6 +208,8 @@ function onBannerAction(action) {
     case 'skill-zhiheng': ui.startSkill('zhiheng'); render(); break;
     case 'skill-rende': ui.startSkill('rende'); render(); break;
     case 'skill-zhangba': ui.startSkill('zhangba'); render(); break;
+    case 'skill-jijiang': ui.startSkill('jijiang'); render(); break;
+    case 'confirm-target': confirmTarget(); break;
     case 'confirm-zhiheng': finish({ skillId: 'zhiheng', cards: pend.selected, targets: [] }); break;
     case 'confirm-respond': {
       const req = pend.opts.req;
@@ -193,36 +276,30 @@ function onGuanxingClick(cardId) {
   render();
 }
 
-function onOppAvatarClick() {
+// 点击武将（选目标）：点可选角色 → 选中/改选；再次点击已选目标 → 确定出牌；
+// 点已选但当前阶段不可再选的角色（如借刀的持武器者）→ 取消该选择
+function onSeatClick(seat) {
   const pend = ui?.pending;
   if (!pend || pend.mode !== 'play' || !game) return;
-  const opp = game.players[1];
-  const me = game.players[0];
-  if (pend.skillId === 'rende') {
-    if (pend.selected.length > 0) {
-      finish({ skillId: 'rende', cards: pend.selected, targets: [opp] });
-    }
+  const spec = targetSpec(game, pend);
+  if (!spec) return;
+  const p = game.players[seat];
+  const isCand = spec.candidates.some(c => c.seat === seat);
+  if (spec.stage === 'victim') {
+    if (pend.victim?.seat === seat && spec.ready) { confirmTarget(); return; }
+    if (isCand) pend.victim = p;
+    else if (pend.targets[0]?.seat === seat) { pend.targets = []; pend.victim = null; }
+    render();
     return;
   }
-  if (pend.skillId === 'zhangba') {
-    // 丈八蛇矛：两张手牌合成【杀】
-    if (pend.selected.length === 2) {
-      finish({ cards: [...pend.selected], card: pend.selected[0], targets: [opp] });
-    }
-    return;
+  if (!isCand) return;
+  if (pend.targets[0]?.seat === seat) {
+    if (spec.ready) { confirmTarget(); return; }
+  } else {
+    pend.targets = [p];
+    pend.victim = null;
   }
-  if (pend.skillId !== null) return;
-  if (pend.selected.length !== 1) return;
-
-  const sel = pend.selected[0];
-  const selfOk = canUseInPlayPhase(game, me, sel);
-  const asShaOk = canUseAsSha(me, sel) && canUseInPlayPhase(game, me, sel, 'sha');
-  if (pend.asSha || (!selfOk && asShaOk)) {
-    // 武圣：以【杀】名义使用
-    finish({ card: makeVirtual(sel, 'sha'), targets: [opp] });
-    return;
-  }
-  finish({ card: sel, targets: [opp] });
+  render();
 }
 
 // ---------- 拖拽出牌（参考官方：按住手牌拖出，松手于目标武将即指定目标，松手于牌桌即使用，拖回手牌区则取消） ----------
@@ -230,15 +307,20 @@ const DRAG_THRESHOLD = 8;
 let drag = null;
 let suppressClick = false;
 
+// 拖放落点：落在可选目标的武将上 → 'target'（附 seat）；落在牌桌其他位置且无需再选目标 → 'use'
 function dropZoneAt(x, y) {
   const pend = ui?.pending;
   if (!pend || !game) return null;
   const el = document.elementFromPoint(x, y);
-  // 手牌区之上的牌桌区域视为「打出」；1v1 唯一目标，拖到牌桌任意处即自动指定对方
   const handTop = document.getElementById('hand-row').getBoundingClientRect().top;
   if (y >= handTop - 10 || !el?.closest('#table')) return null;
-  if (isOppTargetable(game, pend)) return 'target';
-  if (directUseAction(game, pend)) return 'use';
+  const spec = targetSpec(game, pend);
+  const seatEl = el.closest('.seat[data-seat], #opp-row[data-seat], #self-row[data-seat]');
+  if (spec && seatEl) {
+    const seat = Number(seatEl.dataset.seat);
+    if (spec.candidates.some(c => c.seat === seat)) return { zone: 'target', seat };
+  }
+  if (directUseAction(game, pend)) return { zone: 'use' };
   return null;
 }
 
@@ -249,12 +331,17 @@ function markDragging() {
   for (const el of document.querySelectorAll('#hand-row [data-card-id]')) {
     el.classList.toggle('drag-origin', ids.has(el.dataset.cardId));
   }
-  const oppOk = !!pend && isOppTargetable(game, pend);
+  const spec = pend ? targetSpec(game, pend) : null;
   const useOk = !!pend && !!directUseAction(game, pend);
-  document.getElementById('opp-row').classList.toggle('drop-target', oppOk);
-  document.getElementById('opp-row').classList.toggle('drop-hover', oppOk && drag.zone === 'target');
+  for (const el of document.querySelectorAll('.seat[data-seat], #opp-row[data-seat], #self-row[data-seat]')) {
+    if (el.id === 'opp-row' && el.classList.contains('multi')) continue;
+    const seat = Number(el.dataset.seat);
+    const ok = !!spec && spec.candidates.some(c => c.seat === seat);
+    el.classList.toggle('drop-target', ok);
+    el.classList.toggle('drop-hover', ok && drag.zone?.zone === 'target' && drag.zone.seat === seat);
+  }
   document.getElementById('field').classList.toggle('drop-target', useOk);
-  document.getElementById('field').classList.toggle('drop-hover', useOk && drag.zone === 'use');
+  document.getElementById('field').classList.toggle('drop-hover', useOk && drag.zone?.zone === 'use');
   drag.ghost?.classList.toggle('will-drop', !!drag.zone);
 }
 
@@ -295,8 +382,18 @@ function endDrag(commit) {
   setTimeout(() => { suppressClick = false; }, 0);
   const pend = ui?.pending;
   if (!pend || pend !== d.pend) { render(); return; }
-  if (commit && d.zone === 'target') { onOppAvatarClick(); return; }
-  if (commit && d.zone === 'use') { onBannerAction(directUseAction(game, pend)); return; }
+  if (commit && d.zone?.zone === 'target') {
+    // 拖到目标武将：选中该目标，目标已齐则直接出牌（借刀杀人还需再选【杀】的目标）
+    const p = game.players[d.zone.seat];
+    const spec = targetSpec(game, pend);
+    if (spec?.stage === 'victim') pend.victim = p;
+    else { pend.targets = [p]; pend.victim = null; }
+    normalizeTargets();
+    if (targetSpec(game, pend)?.ready) { confirmTarget(); return; }
+    render();
+    return;
+  }
+  if (commit && d.zone?.zone === 'use') { onBannerAction(directUseAction(game, pend)); return; }
   // 未放到有效区域：牌回到手中，恢复拖拽前的选择
   pend.selected = d.prevSelected;
   pend.asSha = d.prevAsSha;
@@ -445,8 +542,8 @@ document.addEventListener('click', e => {
   // 选将界面
   const heroEl = e.target.closest('#setup [data-hero]');
   if (heroEl) {
-    selectedHeroId = heroEl.dataset.hero;
-    renderSetup(selectedHeroId);
+    setup.selectedId = heroEl.dataset.hero;
+    renderSetup(setup);
     return;
   }
 
@@ -458,8 +555,13 @@ document.addEventListener('click', e => {
   const gxCard = e.target.closest('#picker .gx-item');
   if (gxCard) { onGuanxingClick(gxCard.dataset.cardId); return; }
 
-  // 对方头像（指定目标）
-  if (e.target.closest('#opp-row .avatar')) { onOppAvatarClick(); return; }
+  // 武将（指定目标）：身份局点整个座位，1v1 点头像；借刀杀人的【杀】目标可以是自己
+  const seatEl = e.target.closest('.seat[data-seat]')
+    || (e.target.closest('#opp-row .avatar, #self-row .avatar') && e.target.closest('[data-seat]'));
+  if (seatEl && ui?.pending?.mode === 'play' && targetSpec(game, ui.pending)) {
+    onSeatClick(Number(seatEl.dataset.seat));
+    return;
+  }
 
   // 自己的手牌
   // 自己的手牌：只有「可选」或「已选（用于取消）」的牌才响应点击，
@@ -480,4 +582,4 @@ document.addEventListener('click', e => {
 });
 
 // 启动：显示选将界面
-renderSetup(selectedHeroId);
+renderSetup(setup);

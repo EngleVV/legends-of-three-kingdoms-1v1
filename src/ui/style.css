@@ -565,3 +565,103 @@ body.dragging, body.dragging * { cursor: grabbing !important; }
 .gx-item.gx-insert.after::after { right: -7px; }
 .gx-empty { color: #6a5a40; font-size: 13px; }
 .picker-foot { display: flex; gap: 10px; }
+
+/* ---------- 选目标状态（官方：可选目标高亮、不可选置暗、已选金框） ---------- */
+.player-row.picked, .seat.picked {
+  border-color: #fff0c4 !important;
+  box-shadow: 0 0 0 2px rgba(255,224,140,.9), 0 0 22px rgba(255,190,70,.6) !important;
+}
+.player-row.untargetable .hero-plate, .seat.untargetable { filter: brightness(.55) saturate(.6); }
+.player-row.is-self.targetable { border-color: var(--gold-lit); cursor: pointer; }
+.player-row.is-self.targetable .avatar { box-shadow: 0 0 14px rgba(255,207,92,.6); }
+
+/* ---------- 身份徽章 ---------- */
+.role-badge {
+  position: absolute; z-index: 3; top: 2px; right: 2px;
+  width: 20px; height: 20px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: bold; line-height: 1;
+  border: 1px solid rgba(255,255,255,.5); box-shadow: 0 1px 4px rgba(0,0,0,.7);
+  color: #fff;
+}
+.role-badge.r-lord { background: linear-gradient(#e2b33c, #9a6c12); color: #2a1a04; }
+.role-badge.r-loyalist { background: linear-gradient(#e0d4a8, #9c8b58); color: #2a2208; }
+.role-badge.r-rebel { background: linear-gradient(#5aa65a, #2c622c); }
+.role-badge.r-renegade { background: linear-gradient(#8e6fc0, #4b3478); }
+.role-badge.r-unknown { background: rgba(0,0,0,.6); color: #cdbb95; }
+/* 头像上同时有阶段徽章与身份徽章时，阶段徽章让到下方 */
+.avatar:has(.role-badge) .phase-badge { top: 26px; }
+.role-badge.big { position: static; width: 46px; height: 46px; font-size: 24px; flex-shrink: 0; }
+
+/* ---------- 身份局：其他角色的紧凑座位 ---------- */
+#opp-row.multi {
+  gap: 8px; padding: 6px 8px; justify-content: space-between; align-items: stretch;
+}
+.seat.mini {
+  flex: 1 1 0; min-width: 0; display: flex; gap: 8px; align-items: flex-start;
+  padding: 6px; border-radius: 8px; border: 1px solid transparent;
+  background: rgba(0,0,0,.18);
+  transition: border-color .15s, box-shadow .15s, filter .15s;
+}
+.seat.mini.acting { border-color: rgba(212,175,95,.55); }
+.seat.mini.targetable { border-color: var(--gold-lit); cursor: pointer; box-shadow: 0 0 14px rgba(255,207,92,.35); }
+.seat.mini.targetable:hover { background: rgba(255,207,92,.08); }
+.seat.mini.drop-hover { background: rgba(255,207,92,.16); }
+.seat.mini .hero-plate { width: auto; gap: 3px; }
+.seat.mini .avatar { width: 78px; height: 78px; }
+.seat.mini .avatar .hero-name { font-size: 12px; }
+.seat.mini .think-bar { width: 74px; }
+.seat.mini .hp-hearts .magatama { width: 9px; height: 9px; }
+.seat.mini .hp-hearts .hp-num { font-size: 10px; }
+.seat-side { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; }
+.seat-meta { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--ink-dim); white-space: nowrap; }
+.seat-meta .hand-n { display: inline-flex; align-items: center; gap: 4px; color: #e8dcc8; font-weight: bold; }
+.seat-meta .hand-n .cardback { width: 11px; height: 15px; margin: 0; border-radius: 2px; }
+.seat-meta .dist { padding: 0 5px; border-radius: 7px; border: 1px solid var(--line); }
+.seat-skills { font-size: 11px; color: #9fd0a0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seat-equips { display: flex; flex-direction: column; gap: 2px; }
+.eq-line {
+  display: flex; gap: 4px; align-items: baseline; font-size: 11px; line-height: 1.35;
+  padding: 0 4px; border-radius: 3px; background: rgba(240,226,196,.9); white-space: nowrap; overflow: hidden;
+}
+.eq-line.red { color: #b83227; }
+.eq-line.black { color: #2b2b2b; }
+.eq-line .eq-slot { font-size: 9px; color: #7a6a4e; }
+.eq-line .eq-name { font-weight: bold; overflow: hidden; text-overflow: ellipsis; }
+.eq-line .eq-suit { margin-left: auto; font-size: 10px; }
+.eq-none { font-size: 10px; color: #5c4d36; }
+.jz-tags { position: absolute; z-index: 3; left: 2px; top: 20px; display: flex; flex-direction: column; gap: 2px; }
+.jz-tag {
+  font-size: 10px; font-weight: bold; padding: 0 3px; border-radius: 3px;
+  background: #6c4b8f; color: #fff; border: 1px solid #c0a8e0;
+}
+.dead-mark {
+  position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: bold; letter-spacing: 4px; color: #ffdede;
+  background: rgba(40,0,0,.45); text-shadow: 0 1px 4px #000;
+}
+.seat.mini.died { filter: grayscale(.9) brightness(.65); }
+
+/* ---------- 选将：模式切换 / 身份展示 ---------- */
+.mode-tabs { display: flex; gap: 10px; }
+.mode-tab { background: rgba(40,29,17,.8); border-color: #6b5636; min-width: 132px; }
+.mode-tab.on { background: linear-gradient(180deg, #a83f2d, #7d2b1f); border-color: #d0664f; font-weight: bold; }
+.role-reveal {
+  display: flex; align-items: center; gap: 14px; padding: 10px 18px; border-radius: 10px;
+  background: var(--panel-lit); border: 1px solid #705a38; max-width: 620px;
+}
+.role-title { font-size: 18px; font-weight: bold; letter-spacing: 2px; }
+.role-desc { font-size: 13px; color: var(--ink-dim); margin-top: 3px; }
+
+/* ---------- 结算：身份表 ---------- */
+.res-side { text-align: center; color: #f0e2c4; margin-top: 12px; font-size: 18px; letter-spacing: 2px; }
+.res-table { display: flex; flex-direction: column; gap: 6px; margin: 14px auto 0; width: 320px; }
+.res-row {
+  position: relative; display: flex; align-items: center; gap: 10px; padding: 6px 10px 6px 36px;
+  border-radius: 6px; background: rgba(0,0,0,.35); border: 1px solid var(--line); font-size: 14px;
+}
+.res-row .role-badge { left: 8px; top: 50%; right: auto; transform: translateY(-50%); }
+.res-row.won { border-color: var(--gold); background: rgba(212,175,95,.14); }
+.res-row.dead .res-name { text-decoration: line-through; color: var(--ink-dim); }
+.res-row .res-role { color: #cdbb95; }
+.res-row .res-state { margin-left: auto; font-size: 12px; color: var(--ink-dim); }

@@ -70,3 +70,12 @@ test('等待提示：写明对方正在做什么', () => {
   g.asking = null; g.currentTurnSeat = 1; g.currentPhase = 'draw';
   assert.match(waitingText(g), /吕布的回合 · 摸牌阶段/);
 });
+
+test('等待提示：身份局阵亡后显示观战中', () => {
+  const heroes = ['caocao', 'lvbu', 'liubei', 'zhangfei', 'sunquan'].map(id => HEROES[id]);
+  const g = new Game({ heroes, controllers: heroes.map(() => new Controller()), mode: 'identity',
+    roles: ['rebel', 'lord', 'loyalist', 'rebel', 'renegade'] });
+  g.players[0].dead = true;
+  g.currentTurnSeat = 1; g.currentPhase = 'play';
+  assert.match(waitingText(g), /你已阵亡（反贼），观战中/);
+});

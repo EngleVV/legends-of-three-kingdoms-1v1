@@ -1,11 +1,12 @@
 // 诊断脚本：jsdom 加载真实 UI（index.html + app.js），自动点击连续跑多局
-// 用法：node tests/ui-dom.js [局数]
+// 用法：node tests/ui-dom.js [局数] [1v1|identity]
 import { JSDOM } from 'jsdom';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const rounds = Number(process.argv[2] || 5);
+const MODE = process.argv[3] || '1v1';
 
 // 覆盖统计：日志中出现即记为已覆盖
 const COVERAGE_KEYS = [
@@ -13,6 +14,7 @@ const COVERAGE_KEYS = [
   '八卦阵', '雌雄双股剑', '贯石斧', '闪电', '借刀杀人',
   '南蛮入侵', '万箭齐发', '桃园结义', '五谷丰登', '无中生有',
   '丈八蛇矛',
+  ...(MODE === 'identity' ? ['阵亡', '激将', '护驾'] : []),
 ];
 const covered = new Set();
 const anomalies = [];
@@ -46,6 +48,12 @@ const clicks = [];
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function playUntilOver(heroId) {
+  // 身份局：切到身份局标签（每次重新发身份），从候选武将中选第一名
+  if (MODE === 'identity') {
+    click($('#setup [data-action="mode:identity"]'));
+    await sleep(5);
+    heroId = $('#setup [data-hero]').dataset.hero;
+  }
   click($(`#setup [data-hero="${heroId}"]`));
   await sleep(5);
   click($('#setup [data-action="start-game"]'));
@@ -72,9 +80,12 @@ async function playUntilOver(heroId) {
     let acted = false;
 
     // 出牌阶段已选中需要目标的牌 → 点头像
-    if (!acted && $('#opp-row.targetable .avatar')) {
-      click($('#opp-row .avatar')); acted = true;
+    // 出牌阶段选目标：目标已齐直接点「确定」，否则点一个可选目标（身份局点座位）
+    if (!acted && hasAction('confirm-target') && !findAction('confirm-target').disabled) {
+      click(findAction('confirm-target')); acted = true;
     }
+    const seatEl = $('.seat.targetable') || $('#opp-row.targetable .avatar') || $('#self-row.targetable .avatar');
+    if (!acted && seatEl) { click(seatEl); acted = true; }
     // 确认类：先选牌再确认
     if (!acted) {
       const name = ['confirm-respond', 'confirm-peach', 'confirm-nullify', 'confirm-judge-replace', 'confirm-pick']

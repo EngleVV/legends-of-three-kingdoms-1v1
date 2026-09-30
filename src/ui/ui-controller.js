@@ -9,7 +9,8 @@ export class UIController extends Controller {
 
   _begin(mode, opts = {}) {
     return new Promise(resolve => {
-      this.pending = { mode, opts, resolve, selected: [], skillId: null, asSha: false };
+      // targets/victim：出牌阶段选中的目标（借刀杀人的 victim 为其【杀】的目标）
+      this.pending = { mode, opts, resolve, selected: [], skillId: null, asSha: false, targets: [], victim: null };
       // 观星：官方初始把所有牌放在「牌堆顶」一行，玩家再调整顺序或拖到「牌堆底」
       if (mode === 'guanxing') this.pending.gx = { top: [...opts.cards], bottom: [] };
       // pending 就绪后必须重绘，否则横幅/可点牌停留在旧状态，玩家会看到"卡死"
@@ -105,6 +106,8 @@ export class UIController extends Controller {
     if (!pend || pend.mode !== 'play') return;
     pend.skillId = skillId;
     pend.selected = [];
+    pend.targets = [];
+    pend.victim = null;
   }
 
   backToPlay() {
@@ -113,5 +116,7 @@ export class UIController extends Controller {
     pend.skillId = null;
     pend.selected = [];
     pend.asSha = false;
+    pend.targets = [];
+    pend.victim = null;
   }
 }

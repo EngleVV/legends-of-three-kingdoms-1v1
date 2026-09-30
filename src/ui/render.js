@@ -2,10 +2,12 @@
 import {
   CARD_NAME, cardLabel, isRed, canTarget, distance, attackRange,
   canUseInPlayPhase, canUseZhangbaSha, canUseAsSha, canZhangbaPair, canUseCardAs,
-  shaLeftOf, shaLimitOf, EQUIP_RANGE,
+  shaLeftOf, shaLimitOf, EQUIP_RANGE, NEED_TARGET, legalTargets, zhangbaTargets,
+  canJiedaoVictim, canUseJijiang,
 } from '../data/cards.js';
-import { hasSkill, HERO_LIST } from '../data/heroes.js';
+import { hasSkill, HEROES, HERO_LIST } from '../data/heroes.js';
 import { realsOf } from '../core/util.js';
+import { ROLE_NAME, SIDE_NAME } from '../core/identity.js';
 
 const SUIT_SYM = { '♠': '♠', '♥': '♥', '♣': '♣', '♦': '♦' };
 const RANK_STR = { 1: 'A', 11: 'J', 12: 'Q', 13: 'K' };
@@ -83,8 +85,24 @@ function handBackHtml(n) {
 
 const KINGDOM_CLASS = { 蜀: 'k-shu', 魏: 'k-wei', 吴: 'k-wu', 群: 'k-qun' };
 
+// 身份徽章：自己、主公、已阵亡者明示，其余为「?」（官方身份局）
+const ROLE_SHORT = { lord: '主', loyalist: '忠', rebel: '反', renegade: '内' };
+function roleBadge(game, p) {
+  if (game.mode !== 'identity') return '';
+  const known = p === game.players[0] || p.roleRevealed;
+  return known
+    ? `<span class="role-badge r-${p.role}" title="${ROLE_NAME[p.role]}">${ROLE_SHORT[p.role]}</span>`
+    : '<span class="role-badge r-unknown" title="身份未知">?</span>';
+}
+
+// 武将技能名（主公额外显示主公技）
+function skillNamesOf(p) {
+  const ids = [...p.hero.skills, ...(p.role === 'lord' ? p.hero.lordSkills || [] : [])];
+  return ids.map(s => SKILL_CNAME[s] || s);
+}
+
 function playerZoneHtml(game, p, isSelf, equipPick = null, canPick = () => false) {
-  const skillNames = p.hero.skills.map(s => SKILL_CNAME[s] || s).join(' · ');
+  const skillNames = skillNamesOf(p).join(' · ');
   const isTurn = game.players[game.currentTurnSeat ?? 0] === p;
   // 正在等该角色做决定：头像下方显示思考进度条（官方倒计时条的样式，不做超时自动操作）
   const thinking = !game.over && game.asking?.player === p;
@@ -96,6 +114,7 @@ function playerZoneHtml(game, p, isSelf, equipPick = null, canPick = () => false
         <img class="portrait" src="assets/heroes/${p.hero.id}.png" alt="" onerror="this.remove()">
         ${isTurn && phase && !game.over ? `<span class="phase-badge">${phase}</span>` : ''}
         <span class="kingdom ${KINGDOM_CLASS[p.hero.kingdom] || ''}">${p.hero.kingdom}</span>
+        ${roleBadge(game, p)}
         <span class="hero-name">${p.name}</span>
       </div>
       ${hpHtml(p)}
@@ -113,8 +132,55 @@ function playerZoneHtml(game, p, isSelf, equipPick = null, canPick = () => false
 const SKILL_CNAME = {
   rende: '仁德', jianxiong: '奸雄', zhiheng: '制衡', wusheng: '武圣',
   paoxiao: '咆哮', guanxing: '观星', kongcheng: '空城', fankui: '反馈',
-  guicai: '鬼才', wushuang: '无双',
+  guicai: '鬼才', wushuang: '无双', jijiang: '激将', hujia: '护驾', jiuyuan: '救援',
 };
+
+// ---------- 身份局紧凑座位 ----------
+// 头像 + 身份徽章 + 勾玉 + 手牌数 + 与你的距离 + 装备小条 + 判定区小标
+function seatMiniHtml(game, p, cls) {
+  const me = game.players[0];
+  const isTurn = game.players[game.currentTurnSeat ?? 0] === p && !game.over;
+  const thinking = !game.over && game.asking?.player === p;
+  const phase = PHASE_NAME[game.currentPhase];
+  const eq = EQUIP_SLOTS.map(slot => {
+    const c = p.equip[slot];
+    if (!c) return '';
+    const rank = RANK_STR[c.rank] ?? c.rank;
+    return `<div class="eq-line ${isRed(c) ? 'red' : 'black'}" data-card-id="${c.id}"><span class="eq-slot">${SLOT_LABEL[slot]}</span><span class="eq-name">${CARD_NAME[c.name] || c.name}</span><span class="eq-suit">${c.suit}${rank}</span></div>`;
+  }).join('');
+  const judge = p.judgeZone.map(c => `<span class="jz-tag" data-card-id="${c.id}">${c.name === 'le' ? '乐' : c.name === 'shandian' ? '电' : (CARD_NAME[c.name] || '?')[0]}</span>`).join('');
+  const dist = p.alive ? distance(me, p, game) : null;
+  return `
+    <div class="seat mini ${cls.join(' ')}${isTurn ? ' acting' : ''}${thinking ? ' thinking' : ''}${p.alive ? '' : ' died'}" data-seat="${p.seat}">
+      <div class="hero-plate${isTurn ? ' acting' : ''}${thinking ? ' thinking' : ''}${p.alive ? '' : ' died'}">
+        <div class="avatar" data-seat="${p.seat}">
+          <img class="portrait" src="assets/heroes/${p.hero.id}.png" alt="" onerror="this.remove()">
+          ${isTurn && phase ? `<span class="phase-badge">${phase}</span>` : ''}
+          <span class="kingdom ${KINGDOM_CLASS[p.hero.kingdom] || ''}">${p.hero.kingdom}</span>
+          ${roleBadge(game, p)}
+          ${judge ? `<span class="jz-tags">${judge}</span>` : ''}
+          <span class="hero-name">${p.name}</span>
+          ${p.alive ? '' : '<span class="dead-mark">阵亡</span>'}
+        </div>
+        ${hpHtml(p)}
+        <div class="think-bar"><i></i></div>
+      </div>
+      <div class="seat-side">
+        <div class="seat-meta"><span class="hand-n"><i class="cardback"></i>${p.hand.length}</span>${dist ? `<span class="dist">距离 ${dist}</span>` : ''}</div>
+        <div class="seat-skills">${skillNamesOf(p).join(' ')}</div>
+        <div class="seat-equips" data-zone="equip">${eq || '<span class="eq-none">无装备</span>'}</div>
+      </div>
+    </div>`;
+}
+
+// 其他角色的显示顺序：左 → 右 = 上家 … 下家（与官方逆时针座次一致），阵亡者保留原位
+export function othersForDisplay(game) {
+  const n = game.players.length;
+  const me = game.players[0];
+  const list = [];
+  for (let k = n - 1; k >= 1; k--) list.push(game.players[(me.seat + k) % n]);
+  return list;
+}
 
 // 自己装备区的某张牌当前可否点选：
 //   制衡（弃置任意张牌）、贯石斧（弃两张牌，不含贯石斧本身）、
@@ -148,19 +214,19 @@ function playableCheck(game, p, card) {
 
 // 距离 / 攻击范围 / 杀次数 提示
 function rangeInfoHtml(game) {
-  const [me, opp] = game.players;
-  const d = distance(me, opp);
+  const me = game.players[0];
   const r = attackRange(me);
-  const out = d <= r ? '' : '（对方在攻击范围外）';
   const limit = shaLimitOf(me);
   const shaInfo = limit === Infinity
     ? '【杀】不限次数'
     : `本回合还可出 ${shaLeftOf(me)} 张【杀】`;
+  if (game.players.length > 2) return `攻击范围 ${r} · ${shaInfo}`;
+  const opp = game.players[1];
+  const d = distance(me, opp, game);
+  const out = d <= r ? '' : '（对方在攻击范围外）';
   return `距离 ${d} · 攻击范围 ${r}${out} · ${shaInfo}`;
 }
 
-// 目标需选择的牌
-const NEED_TARGET = ['sha', 'juedou', 'le', 'shunshou', 'guohe', 'jiedao'];
 
 function respondCandidates(p, req) {
   if (!req) return [];
@@ -171,22 +237,48 @@ function respondCandidates(p, req) {
   return direct;
 }
 
-// 当前选择是否可以（且需要）指定对方为目标
-export function isOppTargetable(game, pend) {
+// 已选的单张牌是否以【杀】名义使用（武圣：手动切换，或该牌本身不可用但可当杀）
+export function usingAsSha(game, pend) {
   const me = game.players[0];
-  return !!(pend?.mode === 'play' && pend.skillId !== 'zhiheng' && (
-    (pend.skillId === 'rende' && pend.selected.length > 0) ||
-    // 丈八蛇矛：两张手牌合成【杀】需指定目标
-    (pend.skillId === 'zhangba' && pend.selected.length === 2) ||
-    (pend.skillId === null && pend.selected.length === 1 && (
-      NEED_TARGET.includes(pend.selected[0].name)
-      // 武圣：以【杀】名义使用同样需要指定目标
-      || pend.asSha
-      || (!canUseInPlayPhase(game, me, pend.selected[0])
-          && canUseAsSha(me, pend.selected[0])
-          && canUseInPlayPhase(game, me, pend.selected[0], 'sha'))
-    ))
-  ));
+  const sel = pend?.selected?.[0];
+  if (!sel || pend.skillId) return false;
+  return !!pend.asSha || (!canUseInPlayPhase(game, me, sel)
+    && canUseAsSha(me, sel) && canUseInPlayPhase(game, me, sel, 'sha'));
+}
+
+// 当前选择的「指定目标」需求（官方流程：选牌 → 点武将选目标 → 确定）。
+// 返回 null 表示无需目标；否则 { name 牌名/技能, stage 'target'|'victim', candidates 当前可选角色, ready 目标已齐 }。
+// 借刀杀人分两步：先选持武器者（target），再选其【杀】的目标（victim）。
+export function targetSpec(game, pend) {
+  if (!pend || pend.mode !== 'play') return null;
+  const me = game.players[0];
+  const sel = pend.selected;
+  const targets = pend.targets || [];
+  const one = (name, candidates) => ({ name, stage: 'target', candidates, ready: targets.length === 1 });
+  switch (pend.skillId) {
+    case 'rende': return sel.length ? one('rende', game.others(me)) : null;
+    case 'jijiang': return one('jijiang', game.others(me).filter(t => canTarget(game, me, t, 'sha')));
+    case 'zhangba': return sel.length === 2 ? one('sha', zhangbaTargets(game, me)) : null;
+    case null: case undefined: break;
+    default: return null;
+  }
+  if (sel.length !== 1) return null;
+  const name = usingAsSha(game, pend) ? 'sha' : sel[0].name;
+  if (!NEED_TARGET.includes(name)) return null;
+  if (name === 'jiedao' && targets[0]) {
+    const holder = targets[0];
+    return {
+      name, stage: 'victim', holder, ready: !!pend.victim,
+      candidates: game.alivePlayers().filter(v => canJiedaoVictim(game, me, holder, v)),
+    };
+  }
+  return { ...one(name, legalTargets(game, me, sel[0], name)), ready: targets.length === 1 && name !== 'jiedao' };
+}
+
+// 兼容旧调用：当前是否有可指定的其他角色
+export function isOppTargetable(game, pend) {
+  const spec = targetSpec(game, pend);
+  return !!spec && spec.candidates.some(p => p !== game.players[0]);
 }
 
 // 当前选择无需目标即可直接生效时，返回对应的横幅动作；否则返回 null
@@ -197,6 +289,8 @@ export function directUseAction(game, pend) {
   switch (pend.mode) {
     case 'play': {
       if (pend.skillId === 'zhiheng') return n > 0 ? 'confirm-zhiheng' : null;
+      const spec = targetSpec(game, pend);
+      if (spec) return spec.ready ? 'confirm-target' : null;
       if (pend.skillId !== null || n !== 1 || pend.asSha) return null;
       const sel = pend.selected[0];
       return canUseInPlayPhase(game, me, sel) && !NEED_TARGET.includes(sel.name) ? 'confirm-play' : null;
@@ -217,16 +311,40 @@ export function directUseAction(game, pend) {
 
 // ---------- 主渲染 ----------
 export function renderGame(game, ui, logs) {
-  const [me, opp] = game.players;
+  const me = game.players[0];
   const pend = ui.pending;
-  const oppTargetable = isOppTargetable(game, pend);
+  const spec = targetSpec(game, pend);
+  // 每名角色在选目标流程中的状态：可选 / 已选 / 不可选
+  const picked = new Set([...(pend?.targets || []), pend?.victim].filter(Boolean).map(p => p.seat));
+  const seatCls = p => {
+    if (!spec) return [];
+    const c = [];
+    if (spec.candidates.some(x => x.seat === p.seat)) c.push('targetable');
+    else if (!picked.has(p.seat)) c.push('untargetable');
+    if (picked.has(p.seat)) c.push('picked');
+    return c;
+  };
 
-  document.getElementById('opp-row').innerHTML = playerZoneHtml(game, opp, false);
-  document.getElementById('opp-row').classList.toggle('targetable', !!oppTargetable);
+  const oppRow = document.getElementById('opp-row');
+  const multi = game.players.length > 2;
+  oppRow.classList.toggle('multi', multi);
+  if (multi) {
+    oppRow.innerHTML = othersForDisplay(game).map(p => seatMiniHtml(game, p, seatCls(p))).join('');
+    for (const k of ['targetable', 'untargetable', 'picked']) oppRow.classList.remove(k);
+  } else {
+    const opp = game.players[1];
+    oppRow.innerHTML = playerZoneHtml(game, opp, false);
+    oppRow.dataset.seat = opp.seat;
+    for (const k of ['targetable', 'untargetable', 'picked']) oppRow.classList.toggle(k, seatCls(opp).includes(k));
+  }
   // 制衡可弃置装备区的牌，故此时自己的装备需要可点选
   const equipPick = pend ? new Set(pend.selected.map(c => c.id)) : null;
-  document.getElementById('self-row').innerHTML = playerZoneHtml(game, me, true, equipPick,
+  const selfRow = document.getElementById('self-row');
+  selfRow.innerHTML = playerZoneHtml(game, me, true, equipPick,
     c => equipSelectable(game, me, pend, c));
+  // 借刀杀人的【杀】目标可以是自己
+  selfRow.dataset.seat = me.seat;
+  for (const k of ['targetable', 'picked']) selfRow.classList.toggle(k, seatCls(me).includes(k));
 
   // 手牌
   const handEl = document.getElementById('hand-row');
@@ -234,7 +352,9 @@ export function renderGame(game, ui, logs) {
   if (pend) {
     selectedIds = new Set(pend.selected.map(c => c.id));
     if (pend.mode === 'play') {
-      if (pend.skillId) {
+      if (pend.skillId === 'jijiang') {
+        // 激将只需选目标，不用手牌
+      } else if (pend.skillId) {
         // 丈八蛇矛至多选两张；已满两张时其余牌不可再选
         const full = pend.skillId === 'zhangba' && pend.selected.length >= 2;
         handSelectable = new Set(me.hand.filter(c => !full || selectedIds.has(c.id)).map(c => c.id));
@@ -357,6 +477,8 @@ function respondPrompt(me, req) {
     case 'juedou': return `你与 ${who(i.vs, me)} 决斗中，请打出一张${need}，否则受到 1 点伤害${nthOf(i)}`;
     case 'jiedao': return `${src} 对你使用了【借刀杀人】，请对 ${who(i.victim, me)} 使用一张${need}，否则将 ${i.weapon ? cardLabel(i.weapon) : '武器'} 交给 ${src}`;
     case 'qinglong': return `【杀】被抵消，是否发动【青龙偃月刀】对 ${who(i.target, me)} 再使用一张${need}？`;
+    case 'jijiang': return `主公 ${who(i.lord, me)} 发动了【激将】，是否代其打出一张【杀】？`;
+    case 'hujia': return `主公 ${who(i.lord, me)} 发动了【护驾】，是否代其打出一张【闪】？`;
     default: return `请打出一张${need}`;
   }
 }
@@ -385,6 +507,8 @@ function invokePrompt(me, id, info = {}) {
     case 'fankui': return ['是否发动【反馈】？', `获得 ${who(info.source, me)} 的一张牌（手牌或装备）`];
     case 'cixiong': return [`是否对 ${who(info.target, me)} 发动【雌雄双股剑】？`, '对方须弃置一张手牌，否则你摸一张牌'];
     case 'hanbing': return [`是否发动【寒冰剑】？`, `防止此伤害，改为依次弃置 ${who(info.target, me)} 的两张牌`];
+    case 'jijiang': return [`需要打出【杀】，是否发动【激将】？`, `令其他蜀势力角色代你打出${info.hasOwn ? '（你也可以自己出）' : ''}`];
+    case 'hujia': return [`需要打出【闪】，是否发动【护驾】？`, `令其他魏势力角色代你打出${info.hasOwn ? '（你也可以自己出）' : ''}`];
     default: return [`是否发动【${SKILL_CNAME[id] || id}】？`, ''];
   }
 }
@@ -409,6 +533,12 @@ const ASK_VERB = {
 export function waitingText(game) {
   const me = game.players[0];
   const a = game.asking;
+  // 身份局中你已阵亡、其余角色继续对局
+  const dead = me.dead && !game.over ? `你已阵亡（${ROLE_NAME[me.role] || ''}），观战中 · ` : '';
+  return dead + waitingCore(game, me, a);
+}
+
+function waitingCore(game, me, a) {
   if (a && a.player !== me) {
     const verb = ASK_VERB[a.method]?.(a.args) || '行动';
     return `${a.player.name} 思考中：${verb}…`;
@@ -419,7 +549,7 @@ export function waitingText(game) {
 }
 
 export function bannerHtml(game, ui) {
-  const [me] = game.players;
+  const me = game.players[0];
   const pend = ui.pending;
   if (!pend) {
     return `<span class="hint waiting">${waitingText(game)}</span>`;
@@ -436,53 +566,37 @@ export function bannerHtml(game, ui) {
         prompt = `【制衡】请选择任意张牌弃置，然后摸等量的牌${n ? `（已选 ${n} 张）` : ''}`;
         hint = '手牌与装备区的牌都可以弃置';
         buttons = btn('confirm-zhiheng', `确定${n ? `（${n}）` : ''}`, { primary: true, disabled: n === 0 }) + btn('cancel-skill', '返回');
-      } else if (pend.skillId === 'zhangba') {
-        const n = pend.selected.length;
-        prompt = n === 2
-          ? '【丈八蛇矛】请选择【杀】的目标：点击对方武将或拖动卡牌至对方'
-          : `【丈八蛇矛】请选择两张手牌当【杀】使用（已选 ${n}/2）`;
-        hint = rangeInfoHtml(game);
-        buttons = btn('cancel-skill', '返回');
-      } else if (pend.skillId === 'rende') {
-        const n = pend.selected.length;
-        prompt = n
-          ? `【仁德】已选 ${n} 张，点击对方武将将其交给对方`
-          : '【仁德】请选择任意张手牌交给对方';
-        const given = me.flags.rendeGiven || 0;
-        hint = me.flags.rendeHealed
-          ? '本回合已通过仁德回复过体力'
-          : `本回合已交出 ${given} 张，累计满 2 张回复 1 点体力`;
-        buttons = btn('cancel-skill', '返回');
       } else {
+        const spec = targetSpec(game, pend);
         const sel = pend.selected[0];
         hint = rangeInfoHtml(game);
-        if (sel) {
-          const selfOk = canUseInPlayPhase(game, me, sel);
+        if (spec) {
+          [prompt, hint] = targetPrompt(game, pend, spec);
+          const asShaOk = !pend.skillId && sel && !usingAsSha(game, pend)
+            && canUseAsSha(me, sel) && canUseInPlayPhase(game, me, sel, 'sha');
+          buttons = btn('confirm-target', '确定', { primary: true, disabled: !spec.ready })
+            + (asShaOk ? btn('use-as-sha', '当【杀】使用') : '')
+            + btn('cancel-skill', pend.skillId ? '返回' : '取消');
+        } else if (pend.skillId === 'zhangba') {
+          prompt = `【丈八蛇矛】请选择两张手牌当【杀】使用（已选 ${pend.selected.length}/2）`;
+          buttons = btn('cancel-skill', '返回');
+        } else if (pend.skillId === 'rende') {
+          prompt = '【仁德】请选择任意张手牌，再选择交给哪名角色';
+          hint = rendeHint(me);
+          buttons = btn('cancel-skill', '返回');
+        } else if (sel) {
           const asShaOk = canUseAsSha(me, sel) && canUseInPlayPhase(game, me, sel, 'sha');
-          const cname = cn(sel.name);
-
-          if (pend.asSha || (!selfOk && asShaOk)) {
-            // 武圣：以【杀】名义使用，需指定目标
-            const where = isEquipped(me, sel) ? '装备区的' : '';
-            prompt = `【武圣】将${where}${cname}当【杀】使用，请选择【杀】的目标`;
-            hint = `点击对方武将或拖动卡牌至对方 · ${hint}`;
-            buttons = btn('cancel-skill', '取消');
-          } else if (NEED_TARGET.includes(sel.name)) {
-            prompt = `请选择${cname}的目标`;
-            hint = `点击对方武将或拖动卡牌至对方 · ${hint}`;
-            buttons = (asShaOk ? btn('use-as-sha', '当【杀】使用') : '') + btn('cancel-skill', '取消');
-          } else {
-            prompt = directUsePrompt(me, sel);
-            hint = '点击「确定」或拖动卡牌至牌桌';
-            buttons = btn('confirm-play', '确定', { primary: true })
-              + (asShaOk ? btn('use-as-sha', '当【杀】使用') : '')
-              + btn('cancel-skill', '取消');
-          }
+          prompt = directUsePrompt(game, me, sel);
+          hint = '点击「确定」或拖动卡牌至牌桌';
+          buttons = btn('confirm-play', '确定', { primary: true })
+            + (asShaOk ? btn('use-as-sha', '当【杀】使用') : '')
+            + btn('cancel-skill', '取消');
         } else {
           const anyPlayable = me.hand.some(c => playableCheck(game, me, c))
             || Object.values(me.equip).some(c => c && equipSelectable(game, me, pend, c));
           const skillOk = (hasSkill(me, 'zhiheng') && !me.flags.zhihengUsed)
-            || (hasSkill(me, 'rende') && me.hand.length > 0) || canUseZhangbaSha(game, me);
+            || (hasSkill(me, 'rende') && me.hand.length > 0) || canUseZhangbaSha(game, me)
+            || canUseJijiang(game, me);
           prompt = anyPlayable || skillOk
             ? '出牌阶段，请选择一张卡牌'
             : '出牌阶段，没有可以使用的牌，请点击「结束出牌」';
@@ -492,6 +606,8 @@ export function bannerHtml(game, ui) {
             // 制衡出牌阶段限一次，用过后置灰
             (hasSkill(me, 'zhiheng') ? btn('skill-zhiheng', '制衡', { disabled: !!me.flags.zhihengUsed }) : '') +
             (hasSkill(me, 'rende') ? btn('skill-rende', '仁德', { disabled: me.hand.length === 0 }) : '') +
+            // 主公技激将：出牌阶段令蜀势力角色代出【杀】
+            (canUseJijiang(game, me) ? btn('skill-jijiang', '激将') : '') +
             // 丈八蛇矛：装备技能按钮（官方式），可用时才出现
             (canUseZhangbaSha(game, me) ? btn('skill-zhangba', '丈八蛇矛') : '') +
             btn('end-play', '结束出牌', { primary: !hasActiveSkill || !(anyPlayable || skillOk) });
@@ -588,8 +704,49 @@ export function bannerHtml(game, ui) {
   return `<span class="prompt">${prompt}</span>${hint ? `<span class="hint">${hint}</span>` : ''}<span style="flex:1"></span>${buttons}`;
 }
 
+function rendeHint(me) {
+  return me.flags.rendeHealed
+    ? '本回合已通过仁德回复过体力'
+    : `本回合已交出 ${me.flags.rendeGiven || 0} 张，累计满 2 张回复 1 点体力`;
+}
+
+// 选目标阶段的提示语：未选 → 请选择目标；已选 → 写明「牌 → 目标」，点确定出牌
+function targetPrompt(game, pend, spec) {
+  const me = game.players[0];
+  const names = ps => ps.map(p => who(p, me)).join('、');
+  const t = pend.targets || [];
+  const how = '点击武将选择目标（再次点击已选目标或点「确定」出牌），也可拖动卡牌至目标';
+  const sel = pend.selected[0];
+  const via = pend.skillId === 'zhangba' ? '【丈八蛇矛】两张手牌当'
+    : usingAsSha(game, pend) ? `【武圣】将${isEquipped(me, sel) ? '装备区的' : ''}${cn(sel.name)}当` : '';
+  if (spec.name === 'rende') {
+    return [t.length
+      ? `【仁德】将 ${pend.selected.length} 张手牌交给 ${names(t)}，点击「确定」`
+      : `【仁德】已选 ${pend.selected.length} 张，请选择交给哪名角色`, rendeHint(me)];
+  }
+  if (spec.name === 'jijiang') {
+    return [t.length
+      ? `【激将】令蜀势力角色代你对 ${names(t)} 使用【杀】，点击「确定」`
+      : '【激将】请选择【杀】的目标', rangeInfoHtml(game)];
+  }
+  const cardName = `${via}${cn(spec.name)}`;
+  if (spec.stage === 'victim') {
+    return [pend.victim
+      ? `【借刀杀人】令 ${who(spec.holder, me)} 对 ${who(pend.victim, me)} 使用【杀】，点击「确定」`
+      : `【借刀杀人】请选择 ${who(spec.holder, me)} 使用【杀】的目标`, '须在其攻击范围内，可以是你自己'];
+  }
+  if (!spec.candidates.length && !t.length) return [`${cardName}当前没有合法目标`, rangeInfoHtml(game)];
+  if (!t.length) {
+    const first = spec.name === 'jiedao' ? '【借刀杀人】请选择一名装备有武器的角色' : `请选择${cardName}的目标`;
+    return [first, `${how} · ${rangeInfoHtml(game)}`];
+  }
+  const alt = spec.candidates.length > 1 ? '可点击其他武将改选' : '再次点击目标或拖动卡牌至目标也可出牌';
+  return [`${cardName} → ${names(t)}，点击「确定」使用`, `${alt} · ${rangeInfoHtml(game)}`];
+}
+
 // 无需目标、点确定即生效的牌的提示
-function directUsePrompt(me, card) {
+function directUsePrompt(game, me, card) {
+  const multi = game.players.length > 2;
   const c = cn(card.name);
   if (card.type === 'equip') {
     const old = me.equip[card.subType];
@@ -599,8 +756,8 @@ function directUsePrompt(me, card) {
     case 'tao': return '是否使用【桃】回复 1 点体力？';
     case 'shandian': return '是否将【闪电】置入你的判定区？';
     case 'wuzhong': return '是否使用【无中生有】摸两张牌？';
-    case 'nanman': return '是否使用【南蛮入侵】？对方须打出一张【杀】，否则受到 1 点伤害';
-    case 'wanjian': return '是否使用【万箭齐发】？对方须打出一张【闪】，否则受到 1 点伤害';
+    case 'nanman': return `是否使用【南蛮入侵】？${multi ? '其他角色依次' : '对方'}须打出一张【杀】，否则受到 1 点伤害`;
+    case 'wanjian': return `是否使用【万箭齐发】？${multi ? '其他角色依次' : '对方'}须打出一张【闪】，否则受到 1 点伤害`;
     case 'taoyuan': return '是否使用【桃园结义】？所有角色各回复 1 点体力';
     case 'wugu': return '是否使用【五谷丰登】？亮出牌堆顶的牌，各角色依次选择一张';
     default: return `是否使用${c}？`;
@@ -695,36 +852,78 @@ export function renderPicker(game, ui) {
 }
 
 // ---------- 选将界面 ----------
-export function renderSetup(selectedId) {
+// st = { mode: '1v1' | 'identity', selectedId, identity: { role, choices: [heroId], lordHeroId } }
+const ROLE_DESC = {
+  lord: '主公：消灭所有反贼和内奸即获胜。你的身份对所有人明置，体力上限 +1',
+  loyalist: '忠臣：保护主公，消灭所有反贼和内奸即获胜',
+  rebel: '反贼：击杀主公即获胜（同伴是谁需要你自己判断）',
+  renegade: '内奸：先帮主公消灭反贼与忠臣，最后与主公单挑并获胜',
+};
+
+function heroCardHtml(h, selectedId, lord = false) {
+  const skills = [...h.skills, ...(lord ? h.lordSkills || [] : [])].map(s => SKILL_CNAME[s] || s).join('、');
+  return `
+    <div class="hero-card ${h.id === selectedId ? 'selected' : ''}" data-hero="${h.id}">
+      <div class="face"><img src="assets/heroes/${h.id}.png" alt="" onerror="this.remove()"></div>
+      <div class="name">${h.name}</div>
+      <div class="kingdom-line">${h.kingdom} · ${h.hp + (lord ? 1 : 0)} 体力</div>
+      <div class="skills">${skills}</div>
+    </div>`;
+}
+
+export function renderSetup(st) {
   const el = document.getElementById('setup');
   el.classList.remove('hidden');
   document.getElementById('game').classList.add('hidden');
+  const tab = (mode, label) =>
+    `<button class="mode-tab${st.mode === mode ? ' on' : ''}" data-action="mode:${mode}">${label}</button>`;
+  let body;
+  if (st.mode === 'identity' && st.identity) {
+    const { role, choices, lordHeroId } = st.identity;
+    const lordLine = role === 'lord'
+      ? '你是主公，请从以下武将中选择（主公技仅主公拥有）'
+      : `主公已选择 <b>${HEROES[lordHeroId].name}</b>，请从以下 ${choices.length} 名武将中选择`;
+    body = `
+      <div class="role-reveal r-${role}"><span class="role-badge big r-${role}">${ROLE_SHORT[role]}</span>
+        <div><div class="role-title">你的身份：${ROLE_NAME[role]}</div><div class="role-desc">${ROLE_DESC[role]}</div></div></div>
+      <h2>${lordLine}</h2>
+      <div id="hero-grid">${choices.map(id => heroCardHtml(HEROES[id], st.selectedId, role === 'lord')).join('')}</div>`;
+  } else {
+    body = `
+      <h2>标准版 · 选择你的武将</h2>
+      <div id="hero-grid">${HERO_LIST.map(h => heroCardHtml(h, st.selectedId)).join('')}</div>`;
+  }
   el.innerHTML = `
     <h1>三 国 杀</h1>
-    <h2>1v1 · 标准版 · 选择你的武将</h2>
-    <div id="hero-grid">
-      ${HERO_LIST.map(h => `
-        <div class="hero-card ${h.id === selectedId ? 'selected' : ''}" data-hero="${h.id}">
-          <div class="face"><img src="assets/heroes/${h.id}.png" alt="" onerror="this.remove()"></div>
-          <div class="name">${h.name}</div>
-          <div class="kingdom-line">${h.kingdom} · ${h.hp} 体力</div>
-          <div class="skills">${h.skills.map(s => SKILL_CNAME[s] || s).join('、')}</div>
-        </div>`).join('')}
-    </div>
-    <button class="primary" data-action="start-game" ${selectedId ? '' : 'disabled'}>开始对局</button>
+    <div class="mode-tabs">${tab('1v1', '1v1 单挑')}${tab('identity', '5 人身份局')}</div>
+    ${body}
+    <button class="primary" data-action="start-game" ${st.selectedId ? '' : 'disabled'}>开始对局</button>
   `;
 }
 
 export function renderResult(game) {
   if (!game.over) return;
-  const [me] = game.players;
-  const win = game.winner === me;
+  const me = game.players[0];
+  const win = game.winners?.includes(me) || game.winner === me;
+  let sub;
+  if (game.mode === 'identity') {
+    const rows = game.players.map(p => `
+      <div class="res-row${game.winners.includes(p) ? ' won' : ''}${p.alive ? '' : ' dead'}">
+        <span class="role-badge r-${p.role}">${ROLE_SHORT[p.role]}</span>
+        <span class="res-name">${p.name}${p === me ? '（你）' : ''}</span>
+        <span class="res-role">${ROLE_NAME[p.role]}</span>
+        <span class="res-state">${p.alive ? '存活' : '阵亡'}</span>
+      </div>`).join('');
+    sub = `<div class="res-side">${SIDE_NAME[game.winnerSide] || ''}获胜</div><div class="res-table">${rows}</div>`;
+  } else {
+    sub = `<div class="res-side">胜者：${game.winner?.name || ''}</div>`;
+  }
   const overlay = document.createElement('div');
   overlay.id = 'overlay';
   overlay.innerHTML = `
     <div>
       <div class="result ${win ? 'win' : 'lose'}">${win ? '胜 利' : '失 败'}</div>
-      <div style="text-align:center;color:#c9b78a;margin-top:12px;font-size:16px">胜者：${game.winner.name}</div>
+      ${sub}
       <div style="text-align:center"><button data-action="restart">再来一局</button></div>
     </div>`;
   document.body.appendChild(overlay);
