@@ -13,10 +13,15 @@ export class Player {
     this.judgeZone = [];
     // 每回合重置的临时状态
     this.flags = {};
+    // 身份局：role = lord | loyalist | rebel | renegade；1v1 为 null
+    this.role = null;
+    this.roleRevealed = false;
+    this.dead = false;
   }
 
+  // 濒死（体力 ≤ 0 但尚未阵亡）的角色仍然存活，官方可在此时对其使用【桃】
   get alive() {
-    return this.hp > 0;
+    return !this.dead;
   }
 
   removeFromHand(cards) {

@@ -1,8 +1,9 @@
 // 濒死求桃：从当前回合玩家开始轮流询问，出桃 +1 血，直到 >0 或无人再出
 import { handCardOf } from './util.js';
 import { canUseCardAs, cardLabel } from '../data/cards.js';
+import { killPlayer } from './identity.js';
 
-export async function handleDying(game, target) {
+export async function handleDying(game, target, killer = null) {
   let guard = 0;
   while (target.hp <= 0 && !game.over && guard++ < 50) {
     let saved = false;
@@ -25,9 +26,5 @@ export async function handleDying(game, target) {
     }
     if (!saved) break;
   }
-  if (target.hp <= 0) {
-    game.log(`☠ ${target.name} 阵亡！`);
-    game.over = true;
-    game.winner = game.opponentOf(target);
-  }
+  if (target.hp <= 0) killPlayer(game, target, killer);
 }

@@ -8,14 +8,14 @@ import { applyDamage } from './damage.js';
 // 判定区结算（后放置的先结算）
 export async function resolveJudgeZone(game, player) {
   for (const jc of [...player.judgeZone].reverse()) {
-    if (game.over) return;
+    if (game.over || !player.alive) return;
     player.judgeZone = player.judgeZone.filter(c => c.id !== jc.id);
     // handled：该牌已被效果自行处置（移至他人判定区，或已挂起/弃置），无需再统一弃置
     let handled = false;
 
     if (jc.name === 'le') {
       await resolveTrick(game, {
-        card: jc, source: game.opponentOf(player), target: player, name: '乐不思蜀',
+        card: jc, source: null, target: player, name: '乐不思蜀',
         apply: async () => {
           const jcard = await doJudge(game, player, '乐不思蜀');
           if (judgeEffective('乐不思蜀', jcard)) {
@@ -27,16 +27,16 @@ export async function resolveJudgeZone(game, player) {
         },
       });
     } else if (jc.name === 'shandian') {
-      // 【闪电】判定未中或被抵消：移至下家；下家已有【闪电】则顺延（1v1 即留在自己判定区）
+      // 【闪电】判定未中或被抵消：移至下家；下家已有【闪电】则继续顺延，都有则留在原处
       const passOn = () => {
-        const opp = game.opponentOf(player);
         handled = true;
-        if (opp.judgeZone.some(c => c.name === 'shandian')) {
+        const next = game.others(player).find(p => !p.judgeZone.some(c => c.name === 'shandian'));
+        if (!next) {
           player.judgeZone.push(jc);
-          game.log(`${opp.name} 判定区已有【闪电】，【闪电】留在 ${player.name} 的判定区`);
+          game.log(`其他角色判定区均已有【闪电】，【闪电】留在 ${player.name} 的判定区`);
         } else {
-          opp.judgeZone.push(jc);
-          game.log(`【闪电】移至 ${opp.name} 的判定区`);
+          next.judgeZone.push(jc);
+          game.log(`【闪电】移至 ${next.name} 的判定区`);
         }
       };
       let applied = false;
@@ -57,7 +57,7 @@ export async function resolveJudgeZone(game, player) {
           }
         },
       });
-      if (!applied && !game.over) passOn();
+      if (!applied && !game.over && player.alive) passOn();
     }
 
     // 被无懈抵消或已结算完毕的判定牌进弃牌堆
@@ -66,7 +66,7 @@ export async function resolveJudgeZone(game, player) {
 }
 
 export async function runTurn(game, player) {
-  if (game.over) return;
+  if (game.over || !player.alive) return;
   game.currentTurnSeat = player.seat;
   game.currentPhase = 'prepare';
   player.resetTurnFlags();
@@ -80,29 +80,29 @@ export async function runTurn(game, player) {
 
   // 准备
   await enterPhase('prepare');
-  if (game.over) return;
+  if (game.over || !player.alive) return;
 
   // 判定
   await enterPhase('judge');
   await resolveJudgeZone(game, player);
-  if (game.over) return;
+  if (game.over || !player.alive) return;
 
   // 摸牌（观星钩子在 phaseStart:draw 拦截）
   await enterPhase('draw');
-  if (game.over) return;
+  if (game.over || !player.alive) return;
   // 官方单挑：先手第一个回合的摸牌阶段少摸一张
-  const firstTurn = !!game.firstTurnPending;
+  const firstTurn = game.mode === '1v1' && !!game.firstTurnPending;
   game.firstTurnPending = false;
   if (firstTurn) game.log(`${player.name} 为先手，首回合少摸一张牌`);
   game.drawCards(player, firstTurn ? 1 : 2);
 
   // 出牌
   await enterPhase('play');
-  if (game.over || player.flags.skipPlay) {
+  if (game.over || !player.alive || player.flags.skipPlay) {
     if (player.flags.skipPlay) game.log(`${player.name} 跳过出牌阶段`);
   } else {
     let guard = 0;
-    while (!game.over && guard++ < 200) {
+    while (!game.over && player.alive && guard++ < 200) {
       const action = await game.ask(player, 'askPlayCard');
       if (!action) break;
       if (action.skillId) {
@@ -112,7 +112,7 @@ export async function runTurn(game, player) {
       }
     }
   }
-  if (game.over) return;
+  if (game.over || !player.alive) return;
 
   // 弃牌：手牌数 > 体力
   game.currentPhase = 'discard';

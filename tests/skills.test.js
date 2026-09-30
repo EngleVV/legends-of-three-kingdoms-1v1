@@ -383,7 +383,9 @@ test('冒充：任意牌不能当【桃】救命', async () => {
   cc.hp = 0;
   await handleDyingImported(g, cc);
   assert.ok(g.over, '用【杀】冒充【桃】应救不回来');
-  assert.ok(cc.hand.some(c => c.id === fake.id), '冒充失败的【杀】不应被消耗');
+  // 阵亡后其全部牌进入弃牌堆（官方），而非被当作【桃】使用
+  assert.ok(g.deck.discardPile.some(c => c.id === fake.id), '冒充失败的【杀】随阵亡弃置');
+  assert.ok(cc.dead && cc.hand.length === 0);
 });
 
 test('冒充：任意牌不能当【闪】/【杀】打出', async () => {

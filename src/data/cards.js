@@ -135,9 +135,21 @@ export function judgeEffective(reason, card) {
 }
 
 // ---------- 距离与目标合法性 ----------
-// 1v1 基础距离为 1；目标的 +1 马（防御马）令距离 +1，自己的 -1 马（进攻马）令距离 -1，最小为 1。
-export function distance(source, target) {
-  const d = 1 + (target.equip['horse+'] ? 1 : 0) - (source.equip['horse-'] ? 1 : 0);
+// 基础距离 = 两人之间存活座位的最短圈距（1v1 恒为 1）；
+// 目标的 +1 马（防御马）令距离 +1，自己的 -1 马（进攻马）令距离 -1，最小为 1。
+export function seatDistance(game, source, target) {
+  if (!game) return 1;
+  const alive = game.players.filter(p => p.alive || p.seat === source.seat || p.seat === target.seat);
+  const i = alive.findIndex(p => p.seat === source.seat);
+  const j = alive.findIndex(p => p.seat === target.seat);
+  if (i < 0 || j < 0) return 1;
+  const d = Math.abs(i - j);
+  return Math.max(1, Math.min(d, alive.length - d));
+}
+
+export function distance(source, target, game = null) {
+  const d = seatDistance(game, source, target)
+    + (target.equip['horse+'] ? 1 : 0) - (source.equip['horse-'] ? 1 : 0);
   return Math.max(1, d);
 }
 
@@ -146,8 +158,8 @@ export function attackRange(p) {
   return EQUIP_RANGE[p.equip.weapon?.name] ?? 1;
 }
 
-export function inAttackRange(source, target) {
-  return distance(source, target) <= attackRange(source);
+export function inAttackRange(source, target, game = null) {
+  return distance(source, target, game) <= attackRange(source);
 }
 
 // 「区域里的牌」= 手牌 + 装备区 + 判定区（顺手牵羊/过河拆桥）
@@ -161,30 +173,52 @@ export function hasCard(p) {
 }
 
 export function canTarget(game, source, target, cardName) {
-  if (target === source) return ['shandian'].includes(cardName);
+  if (target.seat === source.seat) return ['shandian'].includes(cardName);
   switch (cardName) {
     case 'sha':
       // 空城：不能成为杀/决斗目标
       if (hasSkill(target, 'kongcheng') && target.hand.length === 0) return false;
       // 【杀】受攻击范围限制
-      return inAttackRange(source, target);
+      return inAttackRange(source, target, game);
     case 'juedou':
       // 决斗无距离限制
       if (hasSkill(target, 'kongcheng') && target.hand.length === 0) return false;
       return true;
     case 'shunshou':
       // 顺手牵羊需距离 1
-      return hasCardInArea(target) && distance(source, target) <= 1;
+      return hasCardInArea(target) && distance(source, target, game) <= 1;
     case 'guohe':
       return hasCardInArea(target);
     case 'le':
       return !target.judgeZone.some(c => c.name === 'le');
     case 'jiedao':
-      // 借刀杀人：目标需有武器，且受害者（1v1 中即使用者）在其攻击范围内
-      return !!target.equip.weapon && inAttackRange(target, source);
+      // 借刀杀人：目标需有武器，且其攻击范围内存在另一名可被【杀】的角色（可以是使用者本人）
+      return !!target.equip.weapon
+        && (game ? game.players.filter(p => p.alive) : [source]).some(v => canJiedaoVictim(game, source, target, v));
     default:
       return false;
   }
+}
+
+// 借刀杀人的第二个目标：持武器者需对其使用【杀】，故须是持武器者之外、其可以【杀】的角色
+export function canJiedaoVictim(game, source, holder, victim) {
+  return !!victim && victim.seat !== holder.seat && victim.alive !== false && canTarget(game, holder, victim, 'sha');
+}
+
+// 需要指定目标的牌（出牌阶段）
+export const NEED_TARGET = ['sha', 'juedou', 'le', 'shunshou', 'guohe', 'jiedao'];
+
+// 以 asName（默认本名）使用该牌时的全部合法目标（借刀杀人为第一个目标：持武器者）。
+// 装备区的牌（武圣）按失去该装备后的距离计算。引擎/UI/AI 共用。
+export function legalTargets(game, player, card, asName = null) {
+  const name = asName || card.name;
+  const self = card && equipCardOf(player, card) ? afterLosing(player, [card]) : player;
+  return game.others(player).filter(t => canTarget(game, self, t, name));
+}
+
+// 丈八蛇矛合成【杀】的合法目标
+export function zhangbaTargets(game, player) {
+  return game.others(player).filter(t => canTarget(game, player, t, 'sha'));
 }
 
 // ---------- 【杀】次数上限 ----------
@@ -253,7 +287,7 @@ export function canRespondWith(player, type) {
 // 这是引擎/UI/AI 共用的唯一判据：引擎据此拒绝非法出牌，UI 据此决定哪张牌可点，AI 据此筛选决策。
 export function canUseInPlayPhase(game, player, card, asName = null) {
   const name = asName || card.name;
-  const opp = game.opponentOf(player);
+  const anyTarget = n => legalTargets(game, player, card, n).length > 0;
 
   // 装备区的牌只能经武圣当【杀】使用，且按失去该装备后的状态判定
   if (equipCardOf(player, card)) {
@@ -271,7 +305,7 @@ export function canUseInPlayPhase(game, player, card, asName = null) {
       return false;
     // 【杀】：受每回合次数限制与攻击范围限制
     case 'sha':
-      return shaLeftOf(player) > 0 && canTarget(game, player, opp, 'sha');
+      return shaLeftOf(player) > 0 && anyTarget('sha');
     // 【桃】：出牌阶段只能对自己使用，且体力值未满
     case 'tao':
       return player.hp < player.maxHp;
@@ -284,7 +318,7 @@ export function canUseInPlayPhase(game, player, card, asName = null) {
     case 'shunshou':
     case 'guohe':
     case 'jiedao':
-      return canTarget(game, player, opp, name);
+      return anyTarget(name);
     // 无使用条件的锦囊
     case 'wuzhong':
     case 'nanman':
@@ -302,5 +336,5 @@ export function canUseInPlayPhase(game, player, card, asName = null) {
 export function canUseZhangbaSha(game, player) {
   return canZhangbaPair(player)
     && shaLeftOf(player) > 0
-    && canTarget(game, player, game.opponentOf(player), 'sha');
+    && zhangbaTargets(game, player).length > 0;
 }

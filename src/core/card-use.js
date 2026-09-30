@@ -3,7 +3,7 @@ import {
   cardLabel, canTarget,
   canUseInPlayPhase, canUseZhangbaSha, canRespondWith, shaLeftOf,
   canUseCardAs, canZhangbaPair, judgeEffective, armorOf, renwangBlocks, hasCard,
-  canUseAsSha, equipCardOf, afterLosing,
+  canUseAsSha, equipCardOf, afterLosing, canJiedaoVictim, NEED_TARGET,
 } from '../data/cards.js';
 import { hasSkill } from '../data/heroes.js';
 import { applyDamage } from './damage.js';
@@ -262,16 +262,18 @@ export async function resolveJuedou(game, source, target, vcard) {
   await resolveTrick(game, {
     card: vcard.real, source, target, name: '决斗',
     apply: async () => {
+      // 决斗双方为使用者与目标，由目标先打出【杀】
+      const other = p => (p === target ? source : target);
       let current = target;
       let guard = 0;
-      while (!game.over && guard++ < 30) {
+      while (!game.over && source.alive && target.alive && guard++ < 30) {
         // 无双：与吕布决斗时，非吕布一方每次需打出两张杀
-        const need = hasSkill(game.opponentOf(current), 'wushuang') ? 2 : 1;
+        const need = hasSkill(other(current), 'wushuang') ? 2 : 1;
         let played = 0;
         for (let i = 0; i < need; i++) {
           const v = await askResponse(game, current, {
             type: 'sha', reason: 'juedou',
-            info: { vs: game.opponentOf(current), source, card: vcard, nth: i + 1, need },
+            info: { vs: other(current), source, card: vcard, nth: i + 1, need },
           });
           if (!v) break;
           current.removeCards(realsOf(v));
@@ -280,18 +282,17 @@ export async function resolveJuedou(game, source, target, vcard) {
           game.log(`${current.name} 打出 ${useLabel(v)}${need > 1 ? `（第 ${played}/${need} 张）` : ''}`);
         }
         if (played < need) {
-          await applyDamage(game, game.opponentOf(current), current, 1, vcard);
+          await applyDamage(game, other(current), current, 1, vcard);
           return;
         }
-        current = game.opponentOf(current);
+        current = other(current);
       }
     },
   });
 }
 
 // ---------- 锦囊 ----------
-// 需要指定目标的牌：结算前必须校验目标合法性（距离/空城/重复乐等）
-const NEED_TARGET = ['sha', 'juedou', 'le', 'shunshou', 'guohe', 'jiedao'];
+// 需要指定目标的牌（NEED_TARGET，见 data/cards.js）：结算前必须校验目标合法性（距离/空城/重复乐等）
 
 export async function resolveCardUse(game, player, action) {
   const { card: raw, targets = [] } = action;
@@ -325,7 +326,13 @@ export async function resolveCardUse(game, player, action) {
   if (NEED_TARGET.includes(card.name)) {
     const target = targets[0];
     // 以装备区的牌当【杀】时按失去该装备后的距离/攻击范围判定
-    if (!target || !canTarget(game, afterLosing(player, reals), target, card.name)) { reject('目标不合法'); return; }
+    if (!target || !target.alive || !canTarget(game, afterLosing(player, reals), target, card.name)) { reject('目标不合法'); return; }
+  }
+  // 借刀杀人的第二个目标：持武器者攻击范围内的另一名角色（1v1 默认为使用者本人）
+  let victim = null;
+  if (card.name === 'jiedao') {
+    victim = action.victim || (game.mode === '1v1' ? player : null);
+    if (!canJiedaoVictim(game, player, targets[0], victim)) { reject('【杀】的目标不合法'); return; }
   }
 
   player.removeCards(reals);
@@ -335,10 +342,11 @@ export async function resolveCardUse(game, player, action) {
   // 战报：谁、对谁、使用了哪张牌（杀/决斗在各自结算中记录，装备记「装备了」）
   if (!['sha', 'juedou'].includes(card.name) && card.type !== 'equip') {
     const to = targets.length ? `对 ${targets.map(t => t.name).join('、')} ` : '';
-    game.log(`${player.name} ${to}使用 ${useLabel(card)}`);
+    const extra = victim && game.mode !== '1v1' ? `，令其对 ${victim.name} 使用【杀】` : '';
+    game.log(`${player.name} ${to}使用 ${useLabel(card)}${extra}`);
     // 指示线：指定目标的锦囊指向目标；群体锦囊（南蛮/万箭/桃园/五谷）指向其余角色
     const aoe = ['nanman', 'wanjian', 'taoyuan', 'wugu'].includes(card.name);
-    game.pointAt(player, aoe ? game.players.filter(p => p !== player) : targets);
+    game.pointAt(player, aoe ? game.others(player) : targets);
   }
   game.notify();
 
@@ -411,7 +419,10 @@ export async function resolveCardUse(game, player, action) {
     case 'nanman': {
       // 置入处理区（挂起）而非直接进弃牌堆：造成伤害后奸雄可获得此牌
       game.discardCards([card.real || card], { pending: true });
-      for (const target of game.seatOrder(player).filter(p => p !== player)) {
+      for (const target of game.others(player)) {
+        // 结算途中阵亡的角色跳过
+        if (game.over) break;
+        if (!target.alive) continue;
         await resolveTrick(game, {
           card: card.real || card, source: player, target, name: '南蛮入侵',
           apply: async () => {
@@ -430,7 +441,9 @@ export async function resolveCardUse(game, player, action) {
     }
     case 'wanjian': {
       game.discardCards([card.real || card], { pending: true });
-      for (const target of game.seatOrder(player).filter(p => p !== player)) {
+      for (const target of game.others(player)) {
+        if (game.over) break;
+        if (!target.alive) continue;
         await resolveTrick(game, {
           card: card.real || card, source: player, target, name: '万箭齐发',
           apply: async () => {
@@ -452,7 +465,8 @@ export async function resolveCardUse(game, player, action) {
       game.discardCards([card.real || card]);
       for (const target of game.seatOrder(player)) {
         // 未受伤的角色不会回复体力，官方跳过其结算（也不询问【无懈可击】）
-        if (target.hp >= target.maxHp) continue;
+        if (game.over) break;
+        if (!target.alive || target.hp >= target.maxHp) continue;
         await resolveTrick(game, {
           card: card.real || card, source: player, target, name: '桃园结义',
           apply: async () => game.heal(target, 1),
@@ -461,7 +475,8 @@ export async function resolveCardUse(game, player, action) {
       break;
     }
     case 'wugu': {
-      const n = game.players.length;
+      // 亮出张数 = 存活角色数
+      const n = game.alivePlayers().length;
       const revealed = [];
       for (let i = 0; i < n; i++) {
         const c = game.drawOne();
@@ -473,6 +488,8 @@ export async function resolveCardUse(game, player, action) {
       game.wugu = { cards: [...revealed], taken: {} };
       game.notify();
       for (const target of game.seatOrder(player)) {
+        if (game.over) break;
+        if (!target.alive) continue;
         await resolveTrick(game, {
           card: card.real || card, source: player, target, name: '五谷丰登',
           apply: async () => {
@@ -497,18 +514,18 @@ export async function resolveCardUse(game, player, action) {
     }
     case 'jiedao': {
       const target = targets[0]; // 持武器者
-      const victim = action.victim || player; // 1v1 中即使用者自己
       game.discardCards([card.real || card]);
       await resolveTrick(game, {
         card: card.real || card, source: player, target, name: '借刀杀人',
         apply: async () => {
-          const v = await askResponse(game, target, {
+          // 无懈链期间受害者可能已阵亡或不再合法：视为无法出【杀】
+          const v = canJiedaoVictim(game, player, target, victim) ? await askResponse(game, target, {
             type: 'sha', reason: 'jiedao', info: { victim, source: player, weapon: target.equip.weapon },
-          });
+          }) : null;
           if (v) {
             target.removeCards(realsOf(v));
             await resolveSlash(game, target, victim, v);
-          } else {
+          } else if (target.equip.weapon && player.alive) {
             const w = target.equip.weapon;
             game.log(`${target.name} 不出【杀】，${player.name} 获得其武器 ${cardLabel(w)}`);
             target.equip.weapon = null;
@@ -546,10 +563,11 @@ export async function resolveCardUse(game, player, action) {
 // ---------- 主动技能（仁德/制衡） ----------
 export async function useSkill(game, player, action) {
   if (action.skillId === 'rende') {
-    const cards = action.cards.filter(c => player.hand.some(h => h.id === c.id));
-    if (!cards.length) return;
+    const cards = (action.cards || []).filter(c => player.hand.some(h => h.id === c.id));
+    // 交给哪名其他角色（1v1 默认对手）
+    const opp = action.targets?.[0] || (game.mode === '1v1' ? game.opponentOf(player) : null);
+    if (!cards.length || !opp || !opp.alive || opp.seat === player.seat) return;
     player.removeFromHand(cards);
-    const opp = game.opponentOf(player);
     opp.hand.push(...cards);
     player.flags.rendeGiven += cards.length;
     game.pointAt(player, [opp]);

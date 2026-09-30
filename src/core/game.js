@@ -4,6 +4,7 @@ import { buildStandardDeck, cardLabel } from '../data/cards.js';
 import { SKILL_REGISTRY } from '../data/skills/index.js';
 import { runTurn } from './turn.js';
 import { applyDamage } from './damage.js';
+import { dealRoles, ROLE_NAME, SIDE_NAME } from './identity.js';
 
 // 时机常量
 export const Trigger = {
@@ -15,9 +16,24 @@ export const Trigger = {
 };
 
 export class Game {
-  constructor({ heroes, controllers, logger }) {
+  // mode：'1v1'（两人单挑）| 'identity'（身份局）；roles：身份局按座位排列的身份
+  constructor({ heroes, controllers, logger, mode = null, roles = null }) {
     this.logFn = logger || ((msg) => {});
     this.players = heroes.map((hero, i) => new Player(hero, controllers[i], i));
+    this.mode = mode || (heroes.length === 2 ? '1v1' : 'identity');
+    if (this.mode === 'identity') {
+      const rs = roles || dealRoles(heroes.length);
+      this.players.forEach((p, i) => {
+        p.role = rs[i];
+        // 主公明置身份；5 人及以上主公体力上限 +1
+        if (p.role === 'lord') {
+          p.roleRevealed = true;
+          if (heroes.length >= 5) { p.maxHp += 1; p.hp += 1; }
+        }
+      });
+    }
+    this.winners = [];
+    this.winnerSide = null;
     // 让 controller 能访问局面（AI 决策需要）
     controllers.forEach((c, i) => { if (c) c.game = this; });
     this.deck = new Deck(buildStandardDeck());
@@ -71,6 +87,8 @@ export class Game {
     for (const h of this.hooks) {
       if (h.trigger !== trigger) continue;
       if (this.over) break;
+      // 阵亡角色的技能不再触发
+      if (h.owner && !h.owner.alive) continue;
       if (h.canTrigger && !(await h.canTrigger(ctx, this))) continue;
       const r = await h.handler(ctx, this);
       if (r) results.push({ ...r, from: h.owner, skillId: h.skillId });
@@ -95,16 +113,38 @@ export class Game {
     }
   }
 
-  // ---------- 牌堆 ----------
+  // ---------- 座位 ----------
+  // 1v1 专用：唯一的对手。身份局请使用 others()
   opponentOf(p) {
-    return this.players[1 - p.seat];
+    return this.others(p)[0] || null;
   }
 
-  // 按座位顺序排列的角色列表；默认从当前回合角色开始（询问/结算顺序基准）
+  alivePlayers() {
+    return this.players.filter(p => p.alive);
+  }
+
+  // 按座位顺序（逆时针）排列的存活角色；默认从当前回合角色开始（询问/结算顺序基准）
   seatOrder(from = null) {
     const start = from ? from.seat : (this.currentTurnSeat ?? 0);
-    return [...this.players.slice(start), ...this.players.slice(0, start)];
+    return [...this.players.slice(start), ...this.players.slice(0, start)].filter(p => p.alive);
   }
+
+  // 除 p 以外的存活角色，从 p 的下家开始
+  others(p) {
+    // 按座位比较：规则判定可能传入 afterLosing 生成的角色视图（非同一对象）
+    return this.seatOrder(p).filter(x => x.seat !== p.seat);
+  }
+
+  // p 的下家（下一名存活角色）
+  nextAlive(p) {
+    return this.others(p)[0] || p;
+  }
+
+  get lord() {
+    return this.players.find(p => p.role === 'lord') || null;
+  }
+
+  // ---------- 牌堆 ----------
 
   drawOne() {
     return this.deck.drawOne();
@@ -211,21 +251,32 @@ export class Game {
   // ---------- 主流程 ----------
   async run() {
     this.registerHeroHooks();
-    this.log(`对局开始：${this.players.map(p => p.name).join(' vs ')}`);
-    // 官方单挑规则：起始手牌数等于武将体力上限；为平衡先手，先手首个摸牌阶段少摸一张
-    for (const p of this.players) this.drawCards(p, p.maxHp);
-    let current = Math.round(Math.random());
-    this.log(`${this.players[current].name} 先手`);
-    this.firstTurnPending = true;
+    let current;
+    if (this.mode === '1v1') {
+      this.log(`对局开始：${this.players.map(p => p.name).join(' vs ')}`);
+      // 官方单挑规则：起始手牌数等于武将体力上限；为平衡先手，先手首个摸牌阶段少摸一张
+      for (const p of this.players) this.drawCards(p, p.maxHp);
+      current = this.players[Math.round(Math.random())];
+      this.log(`${current.name} 先手`);
+      this.firstTurnPending = true;
+    } else {
+      // 身份局：起手各 4 张，主公先行
+      current = this.lord;
+      this.log(`身份局开始：主公 ${current.name}（${current.maxHp} 体力）`);
+      for (const p of this.seatOrder(current)) this.drawCards(p, 4);
+    }
     while (!this.over) {
-      await runTurn(this, this.players[current]);
-      current = 1 - current;
+      await runTurn(this, current);
+      if (this.over) break;
+      current = this.nextAlive(current);
       if (++this.turnCount > 500) {
         this.log('回合数超限，判定为平局');
         break;
       }
     }
-    if (this.winner) this.log(`游戏结束，胜者：${this.winner.name}`);
+    if (this.mode === 'identity' && this.winnerSide) {
+      this.log(`游戏结束，${SIDE_NAME[this.winnerSide]}获胜：${this.winners.map(p => `${p.name}（${ROLE_NAME[p.role]}）`).join('、')}`);
+    } else if (this.winner) this.log(`游戏结束，胜者：${this.winner.name}`);
     return this.winner;
   }
 }
