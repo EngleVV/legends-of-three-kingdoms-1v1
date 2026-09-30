@@ -2,12 +2,18 @@
 // 友敌判断统一来自 perception.js（只使用合法可知的信息）；1v1 下对手恒为敌人。
 import {
   canUseInPlayPhase, canUseZhangbaSha, canUseAsSha, canZhangbaPair, JUDGE_EFFECTIVE,
-  legalTargets, zhangbaTargets, canJiedaoVictim, canUseJijiang, canTarget,
+  legalTargets, zhangbaTargets, canJiedaoVictim, canUseJijiang, canTarget, canUseCardAs, isRed,
+  shaLeftOf, inAttackRange,
 } from '../data/cards.js';
-import { hasSkill } from '../data/heroes.js';
+import { hasSkill, isMale } from '../data/heroes.js';
+import { canUseSkill, skillTargetCandidates } from '../data/active-skills.js';
 import { relationOf, isEnemy, isFriend, friendsOf, byThreat } from './perception.js';
 
-const vsha = c => ({ ...c, virtual: true, real: c, reals: [c], name: 'sha', type: 'basic', subType: null });
+// 以 name 名义使用实体牌 c 的动作牌（引擎会重新规范化并校验转化来源）
+const as = (c, name) => ({ ...c, virtual: true, real: c, reals: [c], name });
+const vsha = c => as(c, 'sha');
+// 自己的牌（手牌 + 装备区），用于可用装备作素材的转化技
+const ownCards = p => [...p.hand, ...Object.values(p.equip).filter(Boolean)];
 
 // 从合法目标中挑最该打的敌人
 function bestEnemy(game, p, targets) {
@@ -37,10 +43,15 @@ export function choosePlay(game, p) {
   const tao = find(c => c.name === 'tao' && usable(c));
   if (tao) return { card: tao, targets: [] };
 
-  // 2. 乐不思蜀
+  // 2. 乐不思蜀（含国色：方块牌当【乐不思蜀】，不用【桃】）
   for (const le of hand.filter(c => c.name === 'le' && usable(c))) {
     const t = enemyFor(le);
     if (t) return { card: le, targets: [t] };
+  }
+  for (const c of ownCards(p).filter(x => x.name !== 'le' && x.name !== 'tao'
+    && canUseInPlayPhase(game, p, x, 'le'))) {
+    const t = enemyFor(c, 'le');
+    if (t) return { card: as(c, 'le'), targets: [t] };
   }
 
   // 3. 上装备（武器 > 防具 > 马）
@@ -53,15 +64,19 @@ export function choosePlay(game, p) {
   if (wz) return { card: wz, targets: [] };
 
   // 5. 顺手牵羊 / 过河拆桥：友方判定区有乐时帮其拆掉，否则针对敌人
-  for (const name of ['shunshou', 'guohe']) {
-    for (const c of hand.filter(x => x.name === name && usable(x))) {
-      const ts = legalTargets(game, p, c);
-      const rescue = game.mode === 'identity'
-        && ts.find(t => isFriend(game, p, t) && t.judgeZone.some(j => j.name === 'le'));
-      if (rescue) return { card: c, targets: [rescue] };
-      const t = bestEnemy(game, p, ts);
-      if (t) return { card: c, targets: [t] };
-    }
+  //    奇袭：黑色牌当【过河拆桥】（不拆掉自己的防御牌与仍用得上的【杀】）
+  const spareBlack = x => x.name !== 'guohe' && !['wuxie', 'shan', 'tao'].includes(x.name)
+    && !(x.name === 'sha' && shaLeftOf(p) > 0) && canUseInPlayPhase(game, p, x, 'guohe');
+  const trickUses = [
+    ...['shunshou', 'guohe'].flatMap(name => hand.filter(x => x.name === name && usable(x)).map(c => [c, name])),
+    ...ownCards(p).filter(spareBlack).map(c => [c, 'guohe']),
+  ];
+  for (const [c, name] of trickUses) {
+    const ts = legalTargets(game, p, c, name);
+    const rescue = game.mode === 'identity'
+      && ts.find(t => isFriend(game, p, t) && t.judgeZone.some(j => (j.delayedAs || j.name) === 'le'));
+    const t = rescue || bestEnemy(game, p, ts);
+    if (t) return { card: c.name === name ? c : as(c, name), targets: [t] };
   }
 
   // 6. 杀（次数上限/攻击范围由判据决定）
@@ -69,7 +84,7 @@ export function choosePlay(game, p) {
     const t = enemyFor(c);
     if (t) return { card: c, targets: [t] };
   }
-  // 武圣：红色手牌当杀（保留桃）
+  // 武圣/龙胆：转化为【杀】（保留桃）
   for (const c of hand.filter(x => x.name !== 'tao' && canUseAsSha(p, x) && canUseInPlayPhase(game, p, x, 'sha'))) {
     const t = enemyFor(c, 'sha');
     if (t) return { card: vsha(c), targets: [t] };
@@ -127,6 +142,10 @@ export function choosePlay(game, p) {
   const sd = find(c => c.name === 'shandian' && usable(c));
   if (sd && p.hp >= 3) return { card: sd, targets: [] };
 
+  // 11. 主动技能：青囊/结姻（回血）、反间/离间（伤敌）、苦肉（换牌）
+  const skillAct = chooseActiveSkill(game, p);
+  if (skillAct) return skillAct;
+
   // 12. 制衡：手牌多且攻击牌少时换牌
   const zhihengCards = pickZhiheng(game, p);
   if (hasSkill(p, 'zhiheng') && !p.flags.zhihengUsed && zhihengCards.length >= 2) {
@@ -150,6 +169,44 @@ export function choosePlay(game, p) {
     }
   }
 
+  return null;
+}
+
+// 主动技能决策（规则判据来自 active-skills.js，AI 只决定是否划算与选谁）
+function chooseActiveSkill(game, p) {
+  const low = [...p.hand].sort((a, b) => value(a) - value(b));
+  const hurt = t => t.hp < t.maxHp;
+  // 青囊：回复自己或友方
+  if (canUseSkill(game, p, 'qingnang') && low.length) {
+    const cands = skillTargetCandidates(game, p, 'qingnang');
+    const t = cands.find(x => x === p && hurt(x)) || cands.filter(x => isFriend(game, p, x) && relationOf(game, p, x) >= 1)
+      .sort((a, b) => a.hp - b.hp)[0];
+    if (t && value(low[0]) < 9) return { skillId: 'qingnang', cards: [low[0]], targets: [t] };
+  }
+  // 结姻：自己受伤、或友方男性受伤
+  if (canUseSkill(game, p, 'jieyin') && low.length >= 2) {
+    const t = skillTargetCandidates(game, p, 'jieyin')
+      .filter(x => isFriend(game, p, x) && relationOf(game, p, x) >= 1).sort((a, b) => a.hp - b.hp)[0];
+    if (t && (hurt(p) || t.hp <= 2) && value(low[1]) < 8) return { skillId: 'jieyin', cards: low.slice(0, 2), targets: [t] };
+  }
+  // 反间：对敌人使用（1/4 概率猜中花色，期望收益为正）
+  if (canUseSkill(game, p, 'fanjian')) {
+    const t = bestEnemy(game, p, skillTargetCandidates(game, p, 'fanjian'));
+    if (t) return { skillId: 'fanjian', targets: [t] };
+  }
+  // 离间：让两名敌人（或敌人与未知者）决斗，先选的是受害者
+  if (canUseSkill(game, p, 'lijian')) {
+    const pool = [...p.hand, ...Object.values(p.equip).filter(Boolean)].sort((a, b) => value(a) - value(b));
+    const v = skillTargetCandidates(game, p, 'lijian').filter(x => isEnemy(game, p, x)).sort(byThreat(game, p))[0];
+    const u = v && skillTargetCandidates(game, p, 'lijian', [v]).filter(x => !isFriend(game, p, x) || relationOf(game, p, x) < 1)
+      .sort((a, b) => b.hand.length - a.hand.length)[0];
+    if (v && u && pool[0] && value(pool[0]) < 8) return { skillId: 'lijian', cards: [pool[0]], targets: [v, u] };
+  }
+  // 苦肉：体力充裕时换牌（有【桃】时可多用一次）
+  if (canUseSkill(game, p, 'kurou')) {
+    const hasTao = p.hand.some(c => c.name === 'tao');
+    if (p.hp > 2 || (p.hp === 2 && hasTao)) return { skillId: 'kurou' };
+  }
   return null;
 }
 
@@ -182,11 +239,16 @@ export function chooseRespond(game, p, req) {
   // 激将/护驾：只替友方主公代出
   if ((reason === 'jijiang' || reason === 'hujia') && !isFriend(game, p, info.lord)) return null;
   if (type === 'shan') {
-    return hand.find(c => c.name === 'shan') || null;
+    // 真【闪】优先，其次转化（龙胆的【杀】、倾国的黑色牌，不用【桃】/【无懈】）
+    const real = hand.find(c => c.name === 'shan');
+    if (real) return real;
+    const conv = [...hand].sort((a, b) => value(a) - value(b))
+      .find(c => !['tao', 'wuxie'].includes(c.name) && canUseCardAs(p, c, 'shan', game));
+    return conv ? { card: conv, as: 'shan' } : null;
   }
   if (type === 'sha') {
     const shas = hand.filter(c => c.name === 'sha');
-    // 武圣：红色牌当杀（保留桃）
+    // 武圣/龙胆：转化为【杀】（保留桃）
     const virtualSha = hand.find(c => c.name !== 'tao' && canUseAsSha(p, c));
     const use = c => (c.name === 'sha' ? c : { card: c, as: 'sha' });
     // 丈八蛇矛：无实体杀时可用两张手牌顶上
@@ -212,7 +274,9 @@ export function chooseRespond(game, p, req) {
 
 // 濒死求桃：救自己；身份局救友方（主公濒死时忠臣/反贼未清的内奸必救）
 export function choosePeach(game, p, info) {
-  const tao = p.hand.find(c => c.name === 'tao');
+  // 真【桃】优先，其次急救（回合外红色牌当【桃】）
+  const tao = p.hand.find(c => c.name === 'tao')
+    || [...ownCards(p)].sort((a, b) => value(a) - value(b)).find(c => canUseCardAs(p, c, 'tao', game));
   if (!tao) return null;
   const d = info.dying;
   if (d === p) return tao;
@@ -245,6 +309,15 @@ export function chooseCards(game, p, opts) {
   if (from === 'self' || from === 'discard-phase') {
     const hand = [...p.hand];
     if (hand.length < count) return null;
+    if (reason === 'ganglie') {
+      // 刚烈：残血或手牌多时弃两张，否则选择受到伤害
+      if (!(p.hp <= 1 || p.hand.length >= 4)) return null;
+      return hand.sort((a, b) => value(a) - value(b)).slice(0, 2);
+    }
+    if (reason === 'liuli') {
+      const pool = [...hand, ...(opts.includeEquip ? Object.values(p.equip).filter(Boolean) : [])];
+      return [pool.sort((a, b) => value(a) - value(b))[0]].filter(Boolean);
+    }
     if (reason === 'guanshi') {
       if (!optional) return null;
       // 强制命中收益：对方残血时值得
@@ -337,8 +410,46 @@ export function chooseInvoke(game, p, skillId, info = {}) {
     // 激将/护驾：自己没有可出的牌时才求援
     case 'jijiang':
     case 'hujia': return !info.hasOwn;
+    // 刚烈：不对友方发动
+    case 'ganglie': return game.mode !== 'identity' || !isFriend(game, p, info.source);
+    // 铁骑：不对友方发动
+    case 'tieji': return game.mode !== 'identity' || !isFriend(game, p, info.target);
+    // 裸衣：手里有【杀】或【决斗】且有敌人可打时发动
+    case 'luoyi': {
+      const hasAtk = p.hand.some(c => c.name === 'sha' || c.name === 'juedou' || canUseAsSha(p, c));
+      return hasAtk && game.others(p).some(o => isEnemy(game, p, o) && inAttackRange(p, o, game));
+    }
+    case 'yingzi': case 'luoshen': case 'tiandu': case 'jizhi': case 'keji':
+    case 'lianying': case 'xiaoji': case 'biyue': case 'yiji':
+      return true;
     default:
       // 奸雄：收益为正必发；八卦阵：必判
       return ['jianxiong', 'bagua'].includes(skillId);
   }
+}
+
+// 选择角色：突袭（至多两名敌人的手牌）、遗计（分给自己或友方）、流离（转给敌人）
+export function choosePlayers(game, p, opts) {
+  const { reason, candidates = [], max = 1 } = opts;
+  if (reason === 'tuxi') {
+    const foes = candidates.filter(t => isEnemy(game, p, t)).sort((a, b) => b.hand.length - a.hand.length);
+    // 两名敌人才划算（否则不如正常摸两张）
+    return foes.length >= 2 ? foes.slice(0, max) : null;
+  }
+  if (reason === 'yiji') {
+    const pal = candidates.filter(t => t !== p && isFriend(game, p, t) && relationOf(game, p, t) >= 1)
+      .sort((a, b) => a.hand.length - b.hand.length)[0];
+    // 自己手牌多于友方两张以上时分给友方，否则留给自己
+    return [pal && p.hand.length >= pal.hand.length + 2 ? pal : p];
+  }
+  if (reason === 'liuli') {
+    const t = bestEnemy(game, p, candidates);
+    return t ? [t] : null;
+  }
+  return candidates.slice(0, Math.max(1, opts.min || 1));
+}
+
+// 反间：随机选择一种花色
+export function chooseSuit() {
+  return ['♠', '♥', '♣', '♦'][Math.floor(Math.random() * 4)];
 }
