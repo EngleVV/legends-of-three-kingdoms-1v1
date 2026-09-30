@@ -83,7 +83,7 @@ export function killPlayer(game, victim, killer = null) {
   const cards = victim.allCards();
   victim.hand = [];
   victim.judgeZone = [];
-  for (const k of Object.keys(victim.equip)) victim.equip[k] = null;
+  for (const k of Object.keys(victim.equip)) victim.equip[k] = null; // 阵亡者技能不再触发，不记失去
   if (cards.length) game.discardCards(cards);
 
   const result = checkWinner(game);
@@ -96,8 +96,7 @@ export function killPlayer(game, victim, killer = null) {
   } else if (victim.role === 'loyalist' && killer.role === 'lord') {
     const lose = [...killer.hand, ...Object.values(killer.equip).filter(Boolean)];
     game.log(`主公 ${killer.name} 杀死忠臣，弃置所有手牌与装备${lose.length ? `：${lose.map(cardLabel).join('、')}` : ''}`);
-    killer.hand = [];
-    for (const k of Object.keys(killer.equip)) killer.equip[k] = null;
+    killer.removeCards(lose);
     if (lose.length) game.discardCards(lose);
   }
 }

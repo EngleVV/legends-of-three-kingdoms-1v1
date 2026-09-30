@@ -1,5 +1,6 @@
 // 判定流程
 import { cardLabel, judgeEffective } from '../data/cards.js';
+import { hasSkill } from '../data/heroes.js';
 
 // 翻开一张判定牌，经过鬼才改判，返回最终判定牌（已置入弃牌堆）
 export async function doJudge(game, player, reason) {
@@ -26,5 +27,14 @@ export async function doJudge(game, player, reason) {
   }
   judge.result = judgeEffective(reason, card) ? '生效' : '未生效';
   game.discardCards([card]);
+  // 天妒：自己的判定牌生效后可以获得此牌
+  if (hasSkill(player, 'tiandu') && player.alive && !game.over
+    && await game.ask(player, 'askSkillInvoke', 'tiandu', { card })) {
+    const got = game.takeFromDiscard(card);
+    if (got) {
+      player.hand.push(got);
+      game.log(`${player.name} 发动【天妒】，获得判定牌 ${cardLabel(got)}`);
+    }
+  }
   return card;
 }

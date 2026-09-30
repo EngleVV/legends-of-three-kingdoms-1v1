@@ -24,9 +24,21 @@ export class Player {
     return !this.dead;
   }
 
+  // 失去牌的记录：连营（失去最后的手牌）、枭姬（失去装备区的牌）由 Game.flushLoseTriggers 在下一个决策点结算
   removeFromHand(cards) {
     const ids = new Set(cards.map(c => c.id));
+    const before = this.hand.length;
     this.hand = this.hand.filter(c => !ids.has(c.id));
+    if (before > 0 && this.hand.length === 0) this.lostLastHand = true;
+  }
+
+  // 清空某个装备栏位（统一入口，记录失去装备）
+  clearEquip(slot) {
+    if (!this.equip[slot]) return null;
+    const c = this.equip[slot];
+    this.equip[slot] = null;
+    this.lostEquip = (this.lostEquip || 0) + 1;
+    return c;
   }
 
   // 从手牌或装备区移除（贯石斧/制衡/武圣等可动用装备区的牌）
@@ -34,7 +46,7 @@ export class Player {
     this.removeFromHand(cards);
     const ids = new Set(cards.map(c => c.id));
     for (const k of Object.keys(this.equip)) {
-      if (this.equip[k] && ids.has(this.equip[k].id)) this.equip[k] = null;
+      if (this.equip[k] && ids.has(this.equip[k].id)) this.clearEquip(k);
     }
   }
 
@@ -53,7 +65,8 @@ export class Player {
   }
 
   resetTurnFlags() {
-    this.flags = { shaUsed: 0, rendeGiven: 0, zhihengUsed: false, skipPlay: false };
+    // used：出牌阶段限一次的技能是否已用（按技能 id）
+    this.flags = { shaUsed: 0, rendeGiven: 0, zhihengUsed: false, skipPlay: false, used: {} };
   }
 
   describe() {

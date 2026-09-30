@@ -30,6 +30,13 @@ export class Controller {
   //   bottom：置于牌堆底的牌；未出现在任一数组中的牌视为沉底
   async askGuanxing(player, cards) { return { top: cards, bottom: [] }; }
 
+  // 选择角色：opts = { reason, candidates, min, max, optional, info } → 返回角色数组（空/ null 表示放弃）
+  //   突袭（至多两名）、遗计（分配给谁）、流离（转移给谁）
+  async askChoosePlayers(player, opts) { return null; }
+
+  // 选择花色（反间）：→ '♠' | '♥' | '♣' | '♦'
+  async askChooseSuit(player, info) { return '♠'; }
+
   // 出牌阶段的额外信息询问（借刀受害者等）
   async askVictim(player, info) { return info.victim || player; }
 }

@@ -1,5 +1,6 @@
 // 回合流程：准备 → 判定 → 摸牌 → 出牌 → 弃牌 → 结束
-import { cardLabel, judgeEffective } from '../data/cards.js';
+import { cardLabel, judgeEffective, judgeName } from '../data/cards.js';
+import { luoshen, drawPhaseCount, keji, biyue } from '../data/skills/phase.js';
 import { resolveCardUse, useSkill } from './card-use.js';
 import { doJudge } from './judge.js';
 import { resolveTrick } from './nullify-chain.js';
@@ -13,7 +14,7 @@ export async function resolveJudgeZone(game, player) {
     // handled：该牌已被效果自行处置（移至他人判定区，或已挂起/弃置），无需再统一弃置
     let handled = false;
 
-    if (jc.name === 'le') {
+    if (judgeName(jc) === 'le') {
       await resolveTrick(game, {
         card: jc, source: null, target: player, name: '乐不思蜀',
         apply: async () => {
@@ -26,11 +27,11 @@ export async function resolveJudgeZone(game, player) {
           }
         },
       });
-    } else if (jc.name === 'shandian') {
+    } else if (judgeName(jc) === 'shandian') {
       // 【闪电】判定未中或被抵消：移至下家；下家已有【闪电】则继续顺延，都有则留在原处
       const passOn = () => {
         handled = true;
-        const next = game.others(player).find(p => !p.judgeZone.some(c => c.name === 'shandian'));
+        const next = game.others(player).find(p => !p.judgeZone.some(c => judgeName(c) === 'shandian'));
         if (!next) {
           player.judgeZone.push(jc);
           game.log(`其他角色判定区均已有【闪电】，【闪电】留在 ${player.name} 的判定区`);
@@ -78,8 +79,9 @@ export async function runTurn(game, player) {
     return game.emit('phaseStart', { player, phase });
   };
 
-  // 准备
+  // 准备（观星钩子在 phaseStart:prepare；洛神）
   await enterPhase('prepare');
+  await luoshen(game, player);
   if (game.over || !player.alive) return;
 
   // 判定
@@ -94,7 +96,10 @@ export async function runTurn(game, player) {
   const firstTurn = game.mode === '1v1' && !!game.firstTurnPending;
   game.firstTurnPending = false;
   if (firstTurn) game.log(`${player.name} 为先手，首回合少摸一张牌`);
-  game.drawCards(player, firstTurn ? 1 : 2);
+  // 突袭/裸衣/英姿改变摸牌
+  const n = await drawPhaseCount(game, player, firstTurn ? 1 : 2);
+  if (game.over || !player.alive) return;
+  if (n > 0) game.drawCards(player, n);
 
   // 出牌
   await enterPhase('play');
@@ -110,15 +115,16 @@ export async function runTurn(game, player) {
       } else {
         await resolveCardUse(game, player, action);
       }
+      await game.flushLoseTriggers();
     }
   }
-  if (game.over || !player.alive) return;
+  if (game.over || !player.alive) { player.flags.luoyi = false; return; }
 
   // 弃牌：手牌数 > 体力
   game.currentPhase = 'discard';
   game.notify();
   const excess = player.hand.length - player.hp;
-  if (excess > 0) {
+  if (excess > 0 && !await keji(game, player)) {
     const cards = await game.ask(player, 'askChooseCards', {
       count: excess, from: 'self', reason: 'discard-phase',
     });
@@ -128,7 +134,13 @@ export async function runTurn(game, player) {
     game.log(`${player.name} 弃置 ${chosen.map(cardLabel).join('、')}`);
   }
 
+  await game.flushLoseTriggers();
+
   game.currentPhase = 'end';
   game.notify();
+  await biyue(game, player);
   await game.emit('phaseEnd', { player });
+  await game.flushLoseTriggers();
+  // 裸衣只在本回合有效
+  player.flags.luoyi = false;
 }

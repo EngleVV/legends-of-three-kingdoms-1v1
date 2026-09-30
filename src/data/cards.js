@@ -91,6 +91,13 @@ export function cardLabel(card) {
   return `${suitSym}${rankStr}【${cname}】`;
 }
 
+// 牌名对应的牌类（转化牌按转化后的牌名取类别：如国色的【乐不思蜀】为延时锦囊）
+export function typeOfName(name) {
+  if (['sha', 'shan', 'tao'].includes(name)) return 'basic';
+  if (['le', 'shandian'].includes(name)) return 'delayed';
+  return 'trick';
+}
+
 export function isRed(card) {
   return card.suit === '♥' || card.suit === '♦';
 }
@@ -128,6 +135,9 @@ export const JUDGE_EFFECTIVE = {
   '乐不思蜀': c => c.suit !== '♥',
   '闪电': c => c.suit === '♠' && c.rank >= 2 && c.rank <= 9,
   '八卦阵': c => isRed(c),
+  '铁骑': c => isRed(c),          // 红色：目标不能使用【闪】
+  '刚烈': c => c.suit !== '♥',     // 非红桃：伤害来源弃两张手牌或受到 1 点伤害
+  '洛神': c => !isRed(c),         // 黑色：获得判定牌并可继续
 };
 
 export function judgeEffective(reason, card) {
@@ -148,8 +158,10 @@ export function seatDistance(game, source, target) {
 }
 
 export function distance(source, target, game = null) {
+  // 马术（锁定技）：计算与其他角色的距离 -1，与 -1 马叠加
   const d = seatDistance(game, source, target)
-    + (target.equip['horse+'] ? 1 : 0) - (source.equip['horse-'] ? 1 : 0);
+    + (target.equip['horse+'] ? 1 : 0) - (source.equip['horse-'] ? 1 : 0)
+    - (hasSkill(source, 'mashu') ? 1 : 0);
   return Math.max(1, d);
 }
 
@@ -185,12 +197,15 @@ export function canTarget(game, source, target, cardName) {
       if (hasSkill(target, 'kongcheng') && target.hand.length === 0) return false;
       return true;
     case 'shunshou':
-      // 顺手牵羊需距离 1
-      return hasCardInArea(target) && distance(source, target, game) <= 1;
+      // 顺手牵羊需距离 1（奇才：锦囊无距离限制）；谦逊：不能成为其目标
+      if (hasSkill(target, 'qianxun')) return false;
+      return hasCardInArea(target) && (hasSkill(source, 'qicai') || distance(source, target, game) <= 1);
     case 'guohe':
       return hasCardInArea(target);
     case 'le':
-      return !target.judgeZone.some(c => c.name === 'le');
+      // 谦逊：不能成为【乐不思蜀】的目标
+      if (hasSkill(target, 'qianxun')) return false;
+      return !target.judgeZone.some(c => judgeName(c) === 'le');
     case 'jiedao':
       // 借刀杀人：目标需有武器，且其攻击范围内存在另一名可被【杀】的角色（可以是使用者本人）
       return !!target.equip.weapon
@@ -250,9 +265,44 @@ export function equipCardOf(player, card) {
 }
 
 // ---------- 转化途径 ----------
-// 武圣：关羽可将任意红色牌（手牌或装备区的牌）当【杀】使用或打出
+// 转化技表（唯一来源）：as = 转化成的牌名；ok = 可用作素材的牌；equip = 装备区的牌也可作素材；
+// when(game, player) = 额外时机条件。引擎校验、UI 可选牌、AI 决策都通过 canUseCardAs 查这张表。
+export const CONVERSIONS = [
+  { skill: 'wusheng', as: 'sha', ok: c => isRed(c), equip: true },               // 武圣：红色牌当【杀】
+  { skill: 'longdan', as: 'shan', ok: c => c.name === 'sha' },                    // 龙胆：【杀】当【闪】
+  { skill: 'longdan', as: 'sha', ok: c => c.name === 'shan' },                    // 龙胆：【闪】当【杀】
+  { skill: 'qingguo', as: 'shan', ok: c => !isRed(c) },                           // 倾国：黑色手牌当【闪】
+  { skill: 'qixi', as: 'guohe', ok: c => !isRed(c), equip: true },                // 奇袭：黑色牌当【过河拆桥】
+  { skill: 'guose', as: 'le', ok: c => c.suit === '♦', equip: true },             // 国色：方块牌当【乐不思蜀】
+  { skill: 'jijiu', as: 'tao', ok: c => isRed(c), equip: true,                    // 急救：回合外红色牌当【桃】
+    when: (game, p) => !!game && game.currentTurnSeat !== p.seat },
+];
+
+// 该牌以 asName 使用/打出时所依据的转化技（同名返回 null；无合法途径返回 undefined）
+export function conversionOf(player, card, asName, game = null) {
+  if (!card || !asName) return undefined;
+  const inEquip = !!equipCardOf(player, card);
+  if (card.name === asName && !inEquip) return null;
+  return CONVERSIONS.find(cv => cv.as === asName && hasSkill(player, cv.skill) && cv.ok(card)
+    && (cv.equip || !inEquip) && (!cv.when || cv.when(game, player)));
+}
+
+// 能否把某张实体牌当作 asName 使用/打出。
+// 这是「牌名冒充」的唯一闸门：牌名必须一致，或存在合法转化技（见 CONVERSIONS）。
+// 装备区的牌只能经允许装备素材的转化技使用。
+export function canUseCardAs(player, card, asName, game = null) {
+  return conversionOf(player, card, asName, game) !== undefined;
+}
+
+// 可将该牌转化成的牌名列表（不含本名）
+export function conversionNames(player, card, game = null) {
+  const names = CONVERSIONS.filter(cv => cv.as !== card.name && hasSkill(player, cv.skill)).map(cv => cv.as);
+  return [...new Set(names)].filter(n => canUseCardAs(player, card, n, game));
+}
+
+// 以【杀】名义使用该（非【杀】）牌：武圣、龙胆
 export function canUseAsSha(player, card) {
-  return hasSkill(player, 'wusheng') && isRed(card);
+  return card.name !== 'sha' && canUseCardAs(player, card, 'sha');
 }
 
 // 丈八蛇矛：可将任意两张手牌当【杀】使用或打出
@@ -260,27 +310,15 @@ export function canZhangbaPair(player) {
   return player.equip.weapon?.name === 'zhangba' && player.hand.length >= 2;
 }
 
-// 能否把某张实体牌当作 asName 使用/打出。
-// 这是「牌名冒充」的唯一闸门：除既有转化技外，牌名必须与所需牌名一致。
-// 标准版这 8 名武将中，只有武圣（红牌→杀）与丈八蛇矛（双牌→杀）两种转化途径，
-// 【闪】【桃】【无懈可击】没有任何转化来源。
-export function canUseCardAs(player, card, asName) {
-  if (!card || !asName) return false;
-  if (card.name === asName) return true;
-  if (asName === 'sha') return canUseAsSha(player, card);
-  return false;
+// 能否打出所需的响应牌（不含八卦阵，八卦阵在求闪流程中单独询问）
+export function canRespondWith(player, type, game = null) {
+  const own = [...player.hand, ...Object.values(player.equip).filter(Boolean)];
+  if (own.some(c => canUseCardAs(player, c, type, game))) return true;
+  return type === 'sha' && canZhangbaPair(player);
 }
 
-// 能否打出所需的响应牌（不含八卦阵，八卦阵在求闪流程中单独询问）
-export function canRespondWith(player, type) {
-  if (type === 'shan') return player.hand.some(c => c.name === 'shan');
-  if (type === 'sha') {
-    return player.hand.some(c => canUseCardAs(player, c, 'sha'))
-      || Object.values(player.equip).some(e => e && canUseAsSha(player, e))
-      || canZhangbaPair(player);
-  }
-  return false;
-}
+// 判定区里延时锦囊的「生效牌名」：国色的方块牌当【乐不思蜀】时实体牌名不是 le
+export const judgeName = c => c.delayedAs || c.name;
 
 // ---------- 主公技：激将 / 护驾 ----------
 // 需要 type（'sha'|'shan'）时可代为打出的其他同势力角色（按座位顺序）
@@ -304,14 +342,10 @@ export function canUseInPlayPhase(game, player, card, asName = null) {
   const name = asName || card.name;
   const anyTarget = n => legalTargets(game, player, card, n).length > 0;
 
-  // 装备区的牌只能经武圣当【杀】使用，且按失去该装备后的状态判定
-  if (equipCardOf(player, card)) {
-    if (!(name === 'sha' && canUseAsSha(player, card))) return false;
-    player = afterLosing(player, [card]);
-  }
-
-  // 以非本名使用时，必须存在合法转化途径（目前只有武圣的红牌当杀）
-  if (name !== card.name && !(name === 'sha' && canUseAsSha(player, card))) return false;
+  // 以非本名使用（或使用装备区的牌）时，必须存在合法转化途径（见 CONVERSIONS）
+  if (!canUseCardAs(player, card, name, game)) return false;
+  // 装备区的牌按失去该装备后的状态判定距离/攻击范围
+  if (equipCardOf(player, card)) player = afterLosing(player, [card]);
 
   switch (name) {
     // 【闪】【无懈可击】只能用于响应，不可主动使用
@@ -326,7 +360,7 @@ export function canUseInPlayPhase(game, player, card, asName = null) {
       return player.hp < player.maxHp;
     // 【闪电】：置入自己判定区，已有【闪电】时不可再置
     case 'shandian':
-      return !player.judgeZone.some(c => c.name === 'shandian');
+      return !player.judgeZone.some(c => judgeName(c) === 'shandian');
     // 需指定目标的牌：交由 canTarget 判定（含距离、空城、重复乐、对方有武器等）
     case 'le':
     case 'juedou':

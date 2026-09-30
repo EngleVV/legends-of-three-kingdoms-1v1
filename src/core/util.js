@@ -1,5 +1,6 @@
 // 通用工具
 import { cardLabel, CARD_NAME } from '../data/cards.js';
+import { skillName } from '../data/heroes.js';
 // 校验 controller 返回的响应牌确实在其手牌中，防止无效引用造成死循环
 export function handCardOf(player, r) {
   if (!r) return null;
@@ -21,6 +22,8 @@ export function useLabel(vcard) {
   const reals = realsOf(vcard);
   const as = `【${CARD_NAME[vcard.name] || vcard.name}】`;
   if (vcard.composite) return `${reals.map(cardLabel).join(' + ')} 当${as}（丈八蛇矛）`;
-  if (reals[0] && reals[0].name !== vcard.name) return `${cardLabel(reals[0])} 当${as}（武圣）`;
+  if (reals[0] && reals[0].name !== vcard.name) {
+    return `${cardLabel(reals[0])} 当${as}${vcard.via ? `（${skillName(vcard.via)}）` : ''}`;
+  }
   return cardLabel(reals[0] || vcard);
 }

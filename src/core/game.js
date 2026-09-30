@@ -1,6 +1,8 @@
 import { Deck } from './deck.js';
 import { Player } from '../player.js';
-import { buildStandardDeck, cardLabel } from '../data/cards.js';
+import { buildStandardDeck, cardLabel, judgeName } from '../data/cards.js';
+import { hasSkill } from '../data/heroes.js';
+import { handleDying } from './dying.js';
 import { SKILL_REGISTRY } from '../data/skills/index.js';
 import { runTurn } from './turn.js';
 import { applyDamage } from './damage.js';
@@ -104,6 +106,8 @@ export class Game {
   // ---------- 基础询问（包装，供 UI 刷新） ----------
   // asking 记录「正在等谁做什么决定」，供 UI 显示对方思考中/等待提示
   async ask(player, method, ...args) {
+    // 决策点：先结算连营/枭姬（官方在失去牌时立即触发）
+    if (!this.flushingLose) await this.flushLoseTriggers();
     this.asking = { player, method, args };
     this.notify();
     try {
@@ -191,16 +195,16 @@ export class Game {
   equipCard(player, card) {
     const slot = card.subType;
     const old = player.equip[slot];
-    if (old) this.deck.discard([old]);
+    // 替换装备也算失去装备区的牌（枭姬）
+    if (old) { player.clearEquip(slot); this.deck.discard([old]); }
     player.removeFromHand([card]);
     player.equip[slot] = card;
     this.log(`${player.name} 装备了 ${cardLabel(card)}${old ? `（替换 ${cardLabel(old)}）` : ''}`);
   }
 
   async loseEquip(target, slot) {
-    const card = target.equip[slot];
+    const card = target.clearEquip(slot);
     if (!card) return null;
-    target.equip[slot] = null;
     this.deck.discard([card]);
     this.log(`${target.name} 的 ${cardLabel(card)} 被置入弃牌堆`);
     return card;
@@ -217,14 +221,57 @@ export class Game {
       target.removeFromHand([c]);
       return c;
     }
-    if (target.equip[zone]) {
-      const c = target.equip[zone];
-      target.equip[zone] = null;
+    if (target.equip[zone]) return target.clearEquip(zone);
+    // 判定区按「生效牌名」匹配（国色的方块牌当【乐不思蜀】）
+    const i = target.judgeZone.findIndex(c => judgeName(c) === zone);
+    if (i >= 0) {
+      const c = target.judgeZone.splice(i, 1)[0];
+      delete c.delayedAs;
       return c;
     }
-    const i = target.judgeZone.findIndex(c => c.name === zone);
-    if (i >= 0) return target.judgeZone.splice(i, 1)[0];
     return null;
+  }
+
+  // 从弃牌堆取回一张牌（洛神/天妒获得判定牌）
+  takeFromDiscard(card) {
+    const pile = this.deck.discardPile;
+    const i = pile.findIndex(c => c.id === card.id);
+    return i >= 0 ? pile.splice(i, 1)[0] : null;
+  }
+
+  // 失去体力（苦肉）：不是伤害，不触发受到伤害的技能；体力 ≤ 0 时进入濒死
+  async loseHp(player, n = 1) {
+    player.hp -= n;
+    this.log(`${player.name} 失去 ${n} 点体力，剩 ${player.hp} 血`);
+    if (player.hp <= 0) await handleDying(this, player, null);
+  }
+
+  // 连营 / 枭姬：失去牌后在下一个决策点询问（引擎各处移除牌都经 Player 记录）
+  async flushLoseTriggers() {
+    if (this.flushingLose || this.over) return;
+    this.flushingLose = true;
+    try {
+      for (const p of this.seatOrder()) {
+        if (this.over) break;
+        const lastHand = p.lostLastHand;
+        const equips = p.lostEquip || 0;
+        p.lostLastHand = false;
+        p.lostEquip = 0;
+        if (!p.alive) continue;
+        if (lastHand && hasSkill(p, 'lianying')
+          && await this.ask(p, 'askSkillInvoke', 'lianying', {})) {
+          this.log(`${p.name} 发动【连营】`);
+          this.drawCards(p, 1);
+        }
+        for (let i = 0; i < equips && hasSkill(p, 'xiaoji') && !this.over; i++) {
+          if (!await this.ask(p, 'askSkillInvoke', 'xiaoji', {})) break;
+          this.log(`${p.name} 发动【枭姬】`);
+          this.drawCards(p, 2);
+        }
+      }
+    } finally {
+      this.flushingLose = false;
+    }
   }
 
   // ---------- 指示线 ----------

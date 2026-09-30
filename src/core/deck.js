@@ -22,6 +22,8 @@ export class Deck {
   }
 
   discard(cards) {
+    // 离开判定区的转化延时锦囊（国色）恢复为原牌
+    for (const c of cards) delete c.delayedAs;
     this.discardPile.push(...cards);
   }
 
