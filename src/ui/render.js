@@ -1,12 +1,12 @@
 // 渲染：状态 → DOM（全量重绘）
 import {
   CARD_NAME, cardLabel, isRed, distance, attackRange,
-  canUseInPlayPhase, canUseZhangbaSha, canUseCardAs, pairViewAs,
+  canUseInPlayPhase, canUseZhangbaSha, canUseCardAs, pairViewAs, targetCount,
   shaLeftOf, shaLimitOf, EQUIP_RANGE, needsTarget, needsVictim, legalTargets, zhangbaTargets,
   canSecondTarget, conversionNames, conversionOf, judgeName, handLimitOf,
 } from '../data/cards.js';
 import {
-  HEROES, HERO_LIST, PACKS, skillName, skillDesc, skillIdsOf, defOf, getSkill,
+  HEROES, HERO_LIST, PACKS, skillName, skillDesc, skillIdsOf, defOf, getSkill, getCard,
   activeSkillsOf, canUseSkill, skillTargetCandidates,
 } from '../core/registry.js';
 import { realsOf } from '../core/util.js';
@@ -90,6 +90,12 @@ function handBackHtml(n) {
 
 const KINGDOM_CLASS = { 蜀: 'k-shu', 魏: 'k-wei', 吴: 'k-wu', 群: 'k-qun' };
 
+// 头像上的状态徽章：连环状态（铁索连环）、酒（本回合下一张【杀】伤害 +1）
+function stateBadges(p) {
+  return (p.chained ? '<span class="state-badge chained" title="连环状态：受到属性伤害后传导给其他被连环的角色">连</span>' : '')
+    + (p.flags?.shaBonus ? '<span class="state-badge drunk" title="已使用【酒】：下一张【杀】伤害 +1">酒</span>' : '');
+}
+
 // 身份徽章：自己、主公、已阵亡者明示，其余为「?」（官方身份局）
 const ROLE_SHORT = { lord: '主', loyalist: '忠', rebel: '反', renegade: '内' };
 function roleBadge(game, p) {
@@ -118,6 +124,7 @@ function playerZoneHtml(game, p, isSelf, equipPick = null, canPick = () => false
         ${isTurn && phase && !game.over ? `<span class="phase-badge">${phase}</span>` : ''}
         <span class="kingdom ${KINGDOM_CLASS[p.hero.kingdom] || ''}">${p.hero.kingdom}</span>
         ${roleBadge(game, p)}
+        ${stateBadges(p)}
         <span class="hero-name">${p.name}</span>
       </div>
       ${hpHtml(p)}
@@ -155,6 +162,7 @@ function seatMiniHtml(game, p, cls) {
           ${isTurn && phase ? `<span class="phase-badge">${phase}</span>` : ''}
           <span class="kingdom ${KINGDOM_CLASS[p.hero.kingdom] || ''}">${p.hero.kingdom}</span>
           ${roleBadge(game, p)}
+          ${stateBadges(p)}
           ${judge ? `<span class="jz-tags">${judge}</span>` : ''}
           <span class="hero-name">${p.name}</span>
           ${p.alive ? '' : '<span class="dead-mark">阵亡</span>'}
@@ -287,7 +295,27 @@ export function targetSpec(game, pend) {
       candidates: game.alivePlayers().filter(v => canSecondTarget(game, name, me, holder, v)),
     };
   }
-  return { ...one(name, legalTargets(game, me, sel[0], name)), ready: targets.length === 1 && !needsVictim(name) };
+  // 有第二个目标的牌（借刀杀人）：先选第一个目标，再选第二个目标
+  if (needsVictim(name)) {
+    if (targets[0]) {
+      const holder = targets[0];
+      return {
+        name, stage: 'victim', holder, ready: !!pend.victim,
+        candidates: game.alivePlayers().filter(v => canSecondTarget(game, name, me, holder, v)),
+      };
+    }
+    return one(name, legalTargets(game, me, sel[0], name));
+  }
+  // 多目标的牌（铁索连环 1~2 名）：候选排除已选，选满下限即可确定
+  const { min, max } = targetCount(name);
+  if (max > 1) {
+    return {
+      name, stage: 'target', max, min,
+      candidates: legalTargets(game, me, sel[0], name).filter(t => !targets.includes(t)),
+      ready: targets.length >= min,
+    };
+  }
+  return { ...one(name, legalTargets(game, me, sel[0], name)), ready: targets.length === 1 };
 }
 
 // 兼容旧调用：当前是否有可指定的其他角色
@@ -421,8 +449,9 @@ export function renderGame(game, ui, logs) {
     } else if (pend.mode === 'nullify') {
       handSelectable = new Set(me.hand.filter(c => canUseCardAs(me, c, 'wuxie', game)).map(c => c.id));
     } else if (pend.mode === 'pick-hand') {
-      const ex = pend.opts.opts.exclude || [];
-      handSelectable = new Set(me.hand.filter(c => !ex.includes(c.id)).map(c => c.id));
+      const o = pend.opts.opts;
+      const ex = o.exclude || [];
+      handSelectable = new Set(me.hand.filter(c => !ex.includes(c.id) && (!o.suit || c.suit === o.suit)).map(c => c.id));
     }
   }
   // 不需要选牌的主动技能（苦肉/反间/激将）：手牌不可点
@@ -632,7 +661,9 @@ export function bannerHtml(game, ui) {
       } else if (sel) {
         prompt = directUsePrompt(game, me, sel);
         hint = '点击「确定」或拖动卡牌至牌桌';
-        buttons = btn('confirm-play', '确定', { primary: true }) + convBtns() + btn('cancel-skill', '取消');
+        buttons = btn('confirm-play', '确定', { primary: true }) + convBtns()
+          + (getCard(sel.name)?.recast && !isEquipped(me, sel) ? btn('recast', '重铸') : '')
+          + btn('cancel-skill', '取消');
       } else {
         const anyPlayable = me.hand.some(c => playableCheck(game, me, c))
           || Object.values(me.equip).some(c => c && equipSelectable(game, me, pend, c));
@@ -703,6 +734,8 @@ export function bannerHtml(game, ui) {
       if (o.reason === 'discard-phase') {
         prompt = `弃牌阶段，请弃置 ${o.count} 张手牌（已选 ${n}/${o.count}）`;
         hint = `手牌上限为 ${handLimitOf(me, game)}`;
+      } else if (o.suit) {
+        prompt = `请选择一张${{ '♠': '黑桃', '♥': '红桃', '♣': '梅花', '♦': '方片' }[o.suit]}手牌（已选 ${n}/${o.count}）`;
       } else {
         const fn = promptOf(o.reason).chooseCards;
         [prompt, hint = '', cancel = '取消'] = fn ? fn(o, h, n)
@@ -975,9 +1008,12 @@ export function renderSetup(st) {
     }).join('') || '<div class="hero-none">没有符合条件的武将</div>';
     const packTab = (id, label) =>
       `<button class="pack-tab${(st.pack || 'all') === id ? ' on' : ''}" data-action="pack:${id}">${label}</button>`;
+    const deckTab = (id, label) =>
+      `<button class="pack-tab${st.decks.includes(id) ? ' on' : ''}" data-action="deck:${id}" title="将【军争篇】的 52 张牌加入牌堆">${label}</button>`;
     body = `
       <div class="hero-filter">
-        ${packTab('all', '全部')}${PACKS.map(p => packTab(p.id, p.name)).join('')}
+        ${packTab('all', '全部')}${PACKS.filter(p => p.heroes.length).map(p => packTab(p.id, p.name)).join('')}
+        ${PACKS.filter(p => p.deck.length && p.id !== 'standard').map(p => deckTab(p.id, `${p.name}牌堆`)).join('')}
         <input id="hero-search" type="search" placeholder="搜索武将或技能" value="${(st.search || '').replace(/"/g, '&quot;')}">
       </div>
       <div id="hero-grid" class="compact">${rows}</div>

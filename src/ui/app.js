@@ -15,7 +15,7 @@ let ui = null;
 let game = null;
 let logs = [];
 // 选将界面状态：mode = '1v1' | 'identity'；pack / search：武将筛选；identity = { roles, role, choices, lordHeroId }
-const setup = { mode: '1v1', selectedId: null, pack: 'all', search: '', identity: null };
+const setup = { mode: '1v1', selectedId: null, pack: 'all', search: '', decks: ['standard'], identity: null };
 const HERO_IDS = HERO_LIST.map(h => h.id);
 
 // 身份局：发身份并准备候选武将（人类固定为 0 号座位）。
@@ -151,11 +151,12 @@ function startGame() {
     const ais = [1, 2, 3, 4].map(() => new AIController(320));
     game = new Game({
       heroes: heroes.map(id => HEROES[id]), controllers: [ui, ...ais], mode: 'identity', roles, logger,
+      decks: setup.decks,
     });
   } else {
     const aiChoices = HERO_LIST.filter(h => h.id !== setup.selectedId);
     const aiHero = aiChoices[Math.floor(Math.random() * aiChoices.length)];
-    game = new Game({ heroes: [HEROES[setup.selectedId], aiHero], controllers: [ui, new AIController(500)], logger });
+    game = new Game({ heroes: [HEROES[setup.selectedId], aiHero], controllers: [ui, new AIController(500)], logger, decks: setup.decks });
   }
   game.onUpdate = render;
 
@@ -185,6 +186,12 @@ function onBannerAction(action) {
   if (action === 'start-game') { startGame(); return; }
   if (action.startsWith('pack:')) {
     setup.pack = action.slice(5);
+    renderSetup(setup);
+    return;
+  }
+  if (action.startsWith('deck:')) {
+    const id = action.slice(5);
+    setup.decks = setup.decks.includes(id) ? setup.decks.filter(x => x !== id) : [...setup.decks, id];
     renderSetup(setup);
     return;
   }
@@ -226,6 +233,7 @@ function onBannerAction(action) {
 
   switch (action) {
     case 'confirm-play': finish({ card: pend.selected[0], targets: [] }); break;
+    case 'recast': finish({ card: pend.selected[0], recast: true }); break;
     case 'use-as-sha': ui.useAs('sha'); render(); break;
     case 'end-play': finish(null); break;
     case 'cancel-skill': ui.backToPlay(); render(); break;

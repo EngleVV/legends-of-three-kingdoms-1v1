@@ -140,12 +140,22 @@ import { defineCard } from '../../../core/registry.js';
 export default defineCard({
   id: 'xxx', name: '某牌', type: 'trick',                  // basic | trick | delayed | equip
   subType: 'weapon', range: 3,                             // 装备栏位与武器攻击范围
-  target: { distance: 1, ok: (game, from, to) => true },  // 需要目标：distance 为 'attack' | 数字 | 省略
+  kind: 'sha', nature: 'fire',                             // 牌类与属性（火【杀】：牌类是【杀】，火焰伤害）
+  target: { distance: 1, min: 1, max: 2, ok: (game, from, to) => true },
+                                                           // 需要目标：distance 为 'attack' | 数字 | 省略；
+                                                           //   min/max 目标数（铁索连环 1~2 名）；self: true 可对自己使用
   usable: (game, p) => true,                               // 出牌阶段使用条件
   respondOnly: true,                                       // 只能响应使用（闪、无懈可击）
+  rescue: 'any',                                           // 濒死可当求救牌：'any' 桃 | 'self' 酒（仅自救）
+  recast: true,                                            // 可重铸：置入弃牌堆并摸一张牌（不是使用）
   harmful: true,                                           // 有害锦囊（AI 考虑用无懈抵消）
   async use(game, { player, card, reals, targets, victim }) { /* 效果 */ },
-  ai: { order: 50, play: (game, p, use) => ({ card: use.card, targets: [...] }), value: 5 },
+  onLose(game, player, card) { /* 离开装备区时（白银狮子回复体力） */ },
+  ai: { order: 50, play: (game, p, use) => ({ card: use.card, targets: [...], recast: false }), value: 5 },
   prompt: { use: (game, me, card) => '是否使用【某牌】？' },
 });
+
+属性伤害与铁索连环由引擎统一结算：伤害走 `beforeDamage`（来源方：酒/古锭刀等）→ `receiveDamage`
+（目标方：藤甲/白银狮子）→ 扣体力 → 濒死 → `damaged` → 连环传导。牌是否对目标有效由 `effective`
+修正决定（藤甲挡普通【杀】/南蛮/万箭）。
 ```

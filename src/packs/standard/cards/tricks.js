@@ -4,16 +4,24 @@ import { respond, playedLog, discardUsed } from '../../../core/card-use.js';
 import { resolveTrick } from '../../../core/nullify-chain.js';
 import { applyDamage } from '../../../core/damage.js';
 import { useLabel } from '../../../core/util.js';
-import { cardLabel, hasCardInArea, canTarget, blockerOf, canSecondTarget, legalTargets } from '../../../data/cards.js';
+import { cardLabel, hasCardInArea, canTarget, blockerOf, canSecondTarget, legalTargets, ineffectiveBy } from '../../../data/cards.js';
 import { resolveSlash } from './basic.js';
 import {
-  enemyFor, bestEnemy, aoeWorth, isEnemy, isFriend, relationOf, byThreat, pickArea, pickResponse,
+  enemyFor, bestEnemy, aoeWorth, isShaCard, isEnemy, isFriend, relationOf, byThreat, pickArea, pickResponse,
 } from '../../../ai/util.js';
 
+// 该牌对目标无效（藤甲：南蛮入侵、万箭齐发）时写战报并返回 true：不询问无懈，直接跳过
+export function immune(game, player, target, card) {
+  const by = ineffectiveBy(game, player, target, card);
+  if (by) game.log(`${target.name} 的【${skillName(by)}】生效，${useLabel(card)} 对其无效`);
+  return !!by;
+}
+
 // 单目标锦囊：先置入处理区/弃牌堆，再询问无懈，未被抵消则执行效果
-const single = (name, apply) => async (game, { player, card, reals, targets }) => {
+export const single = (name, apply) => async (game, { player, card, reals, targets }) => {
   const target = targets[0];
   game.discardCards(reals);
+  if (immune(game, player, target, card)) return;
   await resolveTrick(game, { card: reals[0] || card, source: player, target, name, apply: () => apply(game, player, target, card) });
 };
 
@@ -22,7 +30,7 @@ const each = (name, list, apply, { pending = false, skip = () => false } = {}) =
   game.discardCards(reals, { pending });
   for (const target of list(game, player)) {
     if (game.over) break;
-    if (!target.alive || skip(target)) continue;
+    if (!target.alive || skip(target) || immune(game, player, target, card)) continue;
     await resolveTrick(game, { card: reals[0] || card, source: player, target, name, apply: () => apply(game, player, target, card) });
   }
 };
@@ -99,12 +107,12 @@ export const juedou = defineCard({
     order: 70, nullify: 'lowHp',
     play: (game, p, use) => {
       const t = enemyFor(game, p, use);
-      const shaCount = p.hand.filter(c => c.name === 'sha').length;
+      const shaCount = p.hand.filter(isShaCard).length;
       return t && (shaCount >= 2 || t.hp <= 1) ? { card: use.card, targets: [t] } : null;
     },
     // 有余量就出（至少留 1 张杀防身）；濒临死亡时不惜代价
     respond: (game, p, req) => {
-      const shas = p.hand.filter(c => c.name === 'sha');
+      const shas = p.hand.filter(isShaCard);
       if (shas.length >= 2 || (shas.length === 1 && p.hp > 2)) return shas[0];
       return p.hp <= 1 ? pickResponse(game, p, 'sha') : null;
     },

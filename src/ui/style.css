@@ -225,6 +225,17 @@ button.primary {
   border-radius: 4px; padding: 0 4px; box-shadow: 0 1px 4px rgba(0,0,0,.6);
 }
 
+/* 状态徽章：连环状态（横置）、酒 */
+.state-badge {
+  position: absolute; z-index: 2; top: 2px; right: 2px;
+  font-size: 11px; font-weight: bold; line-height: 1; padding: 2px 4px; border-radius: 3px;
+  background: rgba(0,0,0,.65); border: 1px solid rgba(255,255,255,.3); color: #9fd0ff;
+}
+.state-badge.chained { color: #b8a6ff; border-color: #8d7fd0; }
+.state-badge.drunk { color: #ffb066; border-color: #d08a4f; }
+/* 头像上同时有阶段徽章与状态徽章时，状态徽章让到下方 */
+.acting .state-badge, .thinking .state-badge { top: 22px; }
+
 /* 思考进度条：正在等该角色做决定（样式参考官方倒计时条） */
 .think-bar {
   width: 92px; height: 4px; border-radius: 2px; overflow: hidden;

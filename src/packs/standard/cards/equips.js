@@ -5,13 +5,13 @@ import { doJudge } from '../../../core/judge.js';
 import { cardLabel, hasCard, armorOf, cardColor, judgeEffective } from '../../../data/cards.js';
 import { resolveSlash } from './basic.js';
 import { isFriend, lowest, pickArea, pickResponse } from '../../../ai/util.js';
-import { hasSkill } from '../../../core/registry.js';
+import { hasSkill, kindOf } from '../../../core/registry.js';
 
-const isSha = card => card?.name === 'sha';
+export const isSha = card => !!card && kindOf(card.name) === 'sha';
 const ownCount = p => p.hand.length + Object.values(p.equip).filter(Boolean).length;
 
-// 所有装备共用：装备到对应栏位（替换旧装备）；AI 在栏位空时装备
-const equip = (spec) => defineCard({
+// 所有装备共用：装备到对应栏位（替换旧装备）；AI 在栏位空时装备（扩展包的装备也用它定义）
+export const equip = (spec) => defineCard({
   type: 'equip',
   use: (game, { player, reals }) => game.equipCard(player, reals[0]),
   ...spec,

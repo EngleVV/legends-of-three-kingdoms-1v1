@@ -79,10 +79,11 @@ export class UIController extends Controller {
       // 单选
       pend.selected = i >= 0 ? [] : [card];
     } else {
-      // 多选（pick-hand）
-      const max = pend.opts?.opts?.count ?? Infinity;
+      // 多选（pick-hand）：可按花色过滤（火攻弃同花色手牌）
+      const o = pend.opts?.opts || {};
+      const max = (o.suit ? 1 : o.count) ?? Infinity;
       if (i >= 0) pend.selected.splice(i, 1);
-      else if (pend.selected.length < max) pend.selected.push(card);
+      else if (pend.selected.length < max && (!o.suit || card.suit === o.suit)) pend.selected.push(card);
     }
   }
 

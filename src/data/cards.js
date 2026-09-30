@@ -6,6 +6,7 @@
 import '../packs/index.js';
 import {
   getCard, CARD_NAME, EQUIP_RANGE, PACKS, modify, viewAsOf, multiViewAsOf, targetBlocker, judgeSpec,
+  kindOf, natureOf, effectBlocker, allCards,
 } from '../core/registry.js';
 
 export { CARD_NAME, EQUIP_RANGE };
@@ -13,7 +14,7 @@ export { CARD_NAME, EQUIP_RANGE };
 // ---------- 牌堆 ----------
 // 各扩展包提供 deck: [{ name, suit, rank }]，类型与装备栏位取自卡牌定义
 let idSeq = 0;
-export function buildStandardDeck(packIds = null) {
+export function buildStandardDeck(packIds = ["standard"]) {
   return PACKS.filter(p => !packIds || packIds.includes(p.id)).flatMap(p => p.deck || []).map(t => {
     const def = getCard(t.name);
     if (!def) throw new Error(`牌堆中的 ${t.name} 没有卡牌定义`);
@@ -110,7 +111,13 @@ export function hasCard(p) {
 // 卡牌定义 target = { distance: 'attack' | 数字 | 省略, ok(game, from, to) }
 // 距离限制可被 noDistanceLimit 修正（奇才）解除；能否成为目标由目标的 targetable 修正决定（空城、谦逊）。
 export function blockerOf(game, source, target, cardName) {
-  return targetBlocker(target, { card: cardName, from: source, to: target }, game);
+  return targetBlocker(target, { card: kindOf(cardName), from: source, to: target }, game);
+}
+
+// 该牌对目标无效的效果 id（藤甲：普通【杀】、南蛮入侵、万箭齐发），无则 null
+export function ineffectiveBy(game, source, target, card) {
+  return effectBlocker(target, 'effective',
+    { card, kind: kindOf(card.name), nature: natureOf(card.name), from: source, to: target }, game);
 }
 
 export function canTarget(game, source, target, cardName) {
@@ -185,7 +192,8 @@ export function equipCardOf(player, card) {
 export function conversionOf(player, card, asName, game = null) {
   if (!card || !asName) return undefined;
   const inEquip = !!equipCardOf(player, card);
-  if (card.name === asName && !inEquip) return null;
+  // 同名，或牌类相同（火【杀】当【杀】打出）即本牌，无需转化
+  if ((card.name === asName || kindOf(card.name) === asName) && !inEquip) return null;
   return viewAsOf(player).find(cv => (cv.count || 1) === 1 && cv.as === asName && cv.ok(card)
     && (cv.equip || !inEquip) && (!cv.when || cv.when(game, player)));
 }
@@ -202,7 +210,7 @@ export function conversionNames(player, card, game = null) {
 }
 
 export function canUseAsSha(player, card, game = null) {
-  return card.name !== 'sha' && canUseCardAs(player, card, 'sha', game);
+  return kindOf(card.name) !== 'sha' && canUseCardAs(player, card, 'sha', game);
 }
 
 // 多张手牌当一张牌（丈八蛇矛）：返回可用的转化
@@ -221,12 +229,34 @@ export function canRespondWith(player, type, game = null) {
   return !!pairViewAs(player, type);
 }
 
+// ---------- 濒死求救 ----------
+// 卡牌定义 rescue：'any' 可对濒死角色使用（桃）；'self' 只能在自己濒死时使用（酒）
+// 返回该牌以何种牌名求救（含转化，如急救的红色牌当【桃】），不能则 null
+export function rescueAs(game, p, dying, card) {
+  if (!card) return null;
+  for (const def of allCards()) {
+    if (!def.rescue || (def.rescue === 'self' && p.seat !== dying.seat)) continue;
+    if (canUseCardAs(p, card, def.id, game)) return def.id;
+  }
+  return null;
+}
+
+export function canRescue(game, p, dying) {
+  return [...p.hand, ...Object.values(p.equip).filter(Boolean)].some(c => rescueAs(game, p, dying, c));
+}
+
 // 判定区里延时锦囊的「生效牌名」：国色的方块牌当【乐不思蜀】时实体牌名不是 le
 export const judgeName = c => c.delayedAs || c.name;
 
 // ---------- 出牌阶段可用性 ----------
 // 该牌能否在出牌阶段以 asName（默认本名）使用。
 // 卡牌定义：respondOnly 只能响应；usable(game, p) 使用条件；target 需要合法目标。
+// 使用该牌时目标数的上下限（铁索连环 1~2 名）
+export function targetCount(name) {
+  const t = getCard(name)?.target;
+  return t ? { min: t.min ?? 1, max: t.max ?? 1 } : { min: 0, max: 0 };
+}
+
 export function canUseInPlayPhase(game, player, card, asName = null) {
   const name = asName || card.name;
   if (!canUseCardAs(player, card, name, game)) return false;

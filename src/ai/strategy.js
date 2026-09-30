@@ -2,7 +2,7 @@
 // 这里不写任何具体技能/卡牌的判断：每种牌与技能的决策写在其定义的 ai 字段里，
 // 本模块只负责枚举合法选项（全部走 data/cards.js 与注册表的规则判据）并按优先级调用。
 import {
-  canUseInPlayPhase, canUseZhangbaSha, canUseCardAs, conversionNames,
+  canUseInPlayPhase, canUseZhangbaSha, canUseCardAs, conversionNames, rescueAs,
 } from '../data/cards.js';
 import {
   getCard, defOf, aiOf, activeSkillsOf, canUseSkill, getSkill,
@@ -66,10 +66,11 @@ export function chooseRespond(game, p, req) {
 
 // 濒死求桃：救自己；身份局救友方
 export function choosePeach(game, p, info) {
-  const tao = p.hand.find(c => c.name === 'tao')
-    || [...ownCards(p)].sort(byValue).find(c => canUseCardAs(p, c, 'tao', game));
-  if (!tao) return null;
   const d = info.dying;
+  // 真【桃】/【酒】优先，其次转化（急救），挑价值最低的
+  const cands = ownCards(p).filter(c => rescueAs(game, p, d, c));
+  const tao = cands.find(c => c.name === 'tao') || cands.find(c => c.name === 'jiu') || [...cands].sort(byValue)[0];
+  if (!tao) return null;
   if (d === p) return tao;
   if (game.mode !== 'identity') return null; // 1v1 不救对手
   return relationOf(game, p, d) >= 1 ? tao : null;

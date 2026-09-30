@@ -50,16 +50,21 @@ export async function runTurn(game, player) {
     await resolveJudgeZone(game, player);
     if (stop(game, player)) return;
 
-    // 摸牌（突袭/裸衣/英姿在 drawPhase 时机修改摸牌数或改为其他效果）
-    await enterPhase(game, player, 'draw');
-    if (stop(game, player)) return;
+    // 摸牌（突袭/裸衣/英姿在 drawPhase 时机修改摸牌数或改为其他效果；兵粮寸断生效则跳过）
     // 官方单挑：先手第一个回合的摸牌阶段少摸一张
     const firstTurn = game.mode === '1v1' && !!game.firstTurnPending;
     game.firstTurnPending = false;
-    if (firstTurn) game.log(`${player.name} 为先手，首回合少摸一张牌`);
-    const draw = await game.trigger('drawPhase', { player, count: firstTurn ? 1 : 2, done: false });
-    if (stop(game, player)) return;
-    if (!draw.done && draw.count > 0) game.drawCards(player, draw.count);
+    if (player.flags.skipDraw) {
+      game.currentPhase = 'draw';
+      game.log(`${player.name} 跳过摸牌阶段`);
+    } else {
+      await enterPhase(game, player, 'draw');
+      if (stop(game, player)) return;
+      if (firstTurn) game.log(`${player.name} 为先手，首回合少摸一张牌`);
+      const draw = await game.trigger('drawPhase', { player, count: firstTurn ? 1 : 2, done: false });
+      if (stop(game, player)) return;
+      if (!draw.done && draw.count > 0) game.drawCards(player, draw.count);
+    }
 
     // 出牌
     await enterPhase(game, player, 'play');
@@ -99,7 +104,8 @@ export async function runTurn(game, player) {
     await enterPhase(game, player, 'end');
     await game.flushLoseTriggers();
   } finally {
-    // 本回合生效的效果（裸衣等）在回合结束时失效
+    // 本回合生效的效果（裸衣、酒等）在回合结束时失效
     game.resetScope('turn');
+    player.flags.shaBonus = 0;
   }
 }

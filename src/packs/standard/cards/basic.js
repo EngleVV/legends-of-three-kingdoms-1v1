@@ -3,8 +3,8 @@ import { defineCard } from '../../../core/registry.js';
 import { respond, playedLog, discardUsed } from '../../../core/card-use.js';
 import { applyDamage } from '../../../core/damage.js';
 import { useLabel } from '../../../core/util.js';
-import { blockerOf, shaLeftOf, cardLabel } from '../../../data/cards.js';
-import { modify, skillName } from '../../../core/registry.js';
+import { blockerOf, shaLeftOf, cardLabel, ineffectiveBy } from '../../../data/cards.js';
+import { modify, skillName, natureOf } from '../../../core/registry.js';
 import { enemyFor } from '../../../ai/util.js';
 
 // ---------- 【杀】的结算（也供借刀杀人、青龙偃月刀、激将等复用） ----------
@@ -17,7 +17,10 @@ export async function resolveSlash(game, source, target, vcard) {
     game.log(`${source.name} 对 ${target.name} 使用 ${useLabel(vcard)}，【${skillName(blocker)}】生效，${target.name} 不能成为【杀】的目标`);
     return;
   }
-  game.log(`${source.name} 对 ${target.name} 使用 ${useLabel(vcard)}`);
+  // 伤害基数：1 + 本回合的【杀】伤害加成（酒），使用后即消耗
+  const bonus = source.flags?.shaBonus || 0;
+  if (bonus) source.flags.shaBonus = 0;
+  game.log(`${source.name} 对 ${target.name} 使用 ${useLabel(vcard)}${bonus ? '（酒）' : ''}`);
   game.pointAt(source, [target]);
   game.recordRelation(source, target, 'harm');
 
@@ -27,6 +30,13 @@ export async function resolveSlash(game, source, target, vcard) {
   await game.trigger('targetConfirmed', ctx);
   target = ctx.target;
   if (ctx.nullified || game.over) { discardUsed(game, vcard); return; }
+  // 该【杀】对目标无效（藤甲：普通【杀】）
+  const immune = ineffectiveBy(game, source, target, vcard);
+  if (immune) {
+    discardUsed(game, vcard);
+    game.log(`${target.name} 的【${skillName(immune)}】生效，${useLabel(vcard)} 对其无效`);
+    return;
+  }
 
   // 需要的【闪】数：1 + 使用者的 extraResponses 修正（无双）
   const need = 1 + modify(source, 'extraResponses', 0, { kind: 'shan', from: source, to: target }, game);
@@ -44,7 +54,7 @@ export async function resolveSlash(game, source, target, vcard) {
   discardUsed(game, vcard);
   if (hit) {
     // 传入虚拟牌：合成牌（丈八蛇矛）时奸雄可获得其全部实体牌
-    await applyDamage(game, source, target, 1, vcard);
+    await applyDamage(game, source, target, 1 + bonus, vcard, natureOf(vcard.name));
   } else {
     game.log(`${target.name} 闪避了【杀】`);
     await game.trigger('slashMissed', { card: vcard, source, target });
@@ -69,7 +79,7 @@ export const sha = defineCard({
     },
   },
   prompt: {
-    respond: (req, h) => `${h.who(req.info?.source)} 对你使用了【杀】，请打出一张${h.cn(req.type)}${h.nth(req.info)}`,
+    respond: (req, h) => `${h.who(req.info?.source)} 对你使用了${h.cn(req.info?.card?.name || 'sha')}，请打出一张${h.cn(req.type)}${h.nth(req.info)}`,
   },
 });
 
@@ -79,7 +89,7 @@ export const shan = defineCard({
 });
 
 export const tao = defineCard({
-  id: 'tao', name: '桃', type: 'basic',
+  id: 'tao', name: '桃', type: 'basic', rescue: 'any',
   // 出牌阶段只能对自己使用，且体力值未满
   usable: (game, p) => p.hp < p.maxHp,
   async use(game, { player, card, reals }) {

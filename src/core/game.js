@@ -2,7 +2,7 @@ import '../packs/index.js';
 import { Deck } from './deck.js';
 import { Player } from '../player.js';
 import { buildStandardDeck, cardLabel, judgeName } from '../data/cards.js';
-import { EVENTS, effectsOf, skillName } from './registry.js';
+import { EVENTS, effectsOf, skillName, getCard } from './registry.js';
 import { handleDying } from './dying.js';
 import { runTurn } from './turn.js';
 import { applyDamage } from './damage.js';
@@ -10,7 +10,8 @@ import { dealRoles, ROLE_NAME, SIDE_NAME } from './identity.js';
 
 export class Game {
   // mode：'1v1'（两人单挑）| 'identity'（身份局）；roles：身份局按座位排列的身份
-  constructor({ heroes, controllers, logger, mode = null, roles = null }) {
+  // decks：参与组成牌堆的扩展包 id（默认只用标准版 108 张；加入 'junzheng' 为军争 160 张）
+  constructor({ heroes, controllers, logger, mode = null, roles = null, decks = ['standard'] }) {
     this.logFn = logger || ((msg) => {});
     this.players = heroes.map((hero, i) => new Player(hero, controllers[i], i));
     this.mode = mode || (heroes.length === 2 ? '1v1' : 'identity');
@@ -30,7 +31,8 @@ export class Game {
     this.loyalty = this.players.map(() => 0);
     // 让 controller 能访问局面（AI 决策需要）
     controllers.forEach((c, i) => { if (c) c.game = this; });
-    this.deck = new Deck(buildStandardDeck());
+    this.decks = decks;
+    this.deck = new Deck(buildStandardDeck(decks));
     this.over = false;
     this.winner = null;
     this.turnCount = 0;
@@ -243,9 +245,16 @@ export class Game {
         if (this.over) break;
         const lastHand = !!p.lostLastHand;
         const equips = p.lostEquip || 0;
+        const lost = p.lostEquipCards || [];
         p.lostLastHand = false;
         p.lostEquip = 0;
+        p.lostEquipCards = [];
         if (!p.alive || (!lastHand && !equips)) continue;
+        // 装备离开装备区时的效果（白银狮子：回复 1 点体力）
+        for (const c of lost) {
+          const def = getCard(c.name);
+          if (def?.onLose && p.alive && !this.over) await def.onLose(this, p, c);
+        }
         await this.trigger('afterLoseCards', { player: p, lastHand, equips });
       }
     } finally {

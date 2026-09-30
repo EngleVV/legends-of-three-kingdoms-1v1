@@ -3,7 +3,8 @@
 import {
   legalTargets, canUseCardAs, shaLeftOf, inAttackRange, canUseAsSha, canUseInPlayPhase, pairViewAs,
 } from '../data/cards.js';
-import { getCard } from '../core/registry.js';
+import { getCard, kindOf } from '../core/registry.js';
+import { ineffectiveBy } from '../data/cards.js';
 import { relationOf, isEnemy, isFriend, friendsOf, enemiesOf, byThreat } from './perception.js';
 
 export { relationOf, isEnemy, isFriend, friendsOf, enemiesOf, byThreat };
@@ -29,8 +30,13 @@ export function bestEnemy(game, p, targets) {
   return targets.filter(t => isEnemy(game, p, t)).sort(byThreat(game, p))[0] || null;
 }
 
+// 牌类为【杀】的牌（含火【杀】、雷【杀】）
+export const isShaCard = c => !!c && kindOf(c.name) === 'sha';
+
+// 合法且该牌对其有效（避开藤甲挡普通【杀】等）的目标中，最该打的敌人
 export function enemyFor(game, p, use) {
-  return bestEnemy(game, p, legalTargets(game, p, use.real, use.name));
+  const card = { ...(use.real || use.card), name: use.name };
+  return bestEnemy(game, p, legalTargets(game, p, use.real, use.name).filter(t => !ineffectiveBy(game, p, t, card)));
 }
 
 // 群体伤害是否划算：波及的敌人多于友方（1v1 恒划算）
@@ -45,9 +51,9 @@ export function aoeWorth(game, p) {
 export function spareFor(game, p, c, as) {
   if (c.name === as || c.name === 'tao') return false;
   if (Object.values(p.equip).some(e => e && e.id === c.id) && !['horse+', 'horse-'].includes(c.subType)) return false;
-  if (as === 'sha') return true;
+  if (kindOf(as) === 'sha') return true;
   if (['wuxie', 'shan'].includes(c.name)) return false;
-  return !(c.name === 'sha' && shaLeftOf(p, game) > 0);
+  return !(isShaCard(c) && shaLeftOf(p, game) > 0);
 }
 
 // 选择目标区域的一张牌（顺手/过河/反馈/寒冰剑）：返回区域描述 [zone]
@@ -57,7 +63,7 @@ export function pickArea(game, p, opts) {
   if (!t) return null;
   const jn = c => c.delayedAs || c.name;
   if (game.mode === 'identity' && !opts.noJudge && isFriend(game, p, t)) {
-    const bad = t.judgeZone.find(c => jn(c) === 'le' || jn(c) === 'shandian');
+    const bad = t.judgeZone.find(c => getCard(jn(c))?.harmful);
     if (bad) return [jn(bad)];
   }
   if (t.equip.weapon) return ['weapon'];
@@ -73,7 +79,7 @@ export function pickArea(game, p, opts) {
 
 // 挑选响应牌：真牌优先，其次转化（不用【桃】/【无懈】），最后多张当一张
 export function pickResponse(game, p, type, { allowPair = true, realOnly = false } = {}) {
-  const real = p.hand.find(c => c.name === type);
+  const real = p.hand.find(c => kindOf(c.name) === type);
   if (real) return real;
   if (realOnly) return null;
   const conv = [...p.hand].sort(byValue)
@@ -88,7 +94,7 @@ export function pickResponse(game, p, type, { allowPair = true, realOnly = false
 
 // 多张当【杀】：挑两张可以舍弃的手牌（保留桃/闪/无懈）
 export function pairFor(p) {
-  const spare = p.hand.filter(c => !['tao', 'wuxie', 'shan'].includes(c.name));
+  const spare = p.hand.filter(c => !['tao', 'wuxie', 'shan', 'jiu'].includes(c.name));
   return spare.length >= 2 ? spare.slice(0, 2) : null;
 }
 

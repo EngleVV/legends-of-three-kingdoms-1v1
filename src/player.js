@@ -25,6 +25,8 @@ export class Player {
     // 身份局：role = lord | loyalist | rebel | renegade；1v1 为 null
     this.role = null;
     this.roleRevealed = false;
+    // 连环状态（铁索连环）
+    this.chained = false;
     this.dead = false;
   }
 
@@ -47,6 +49,8 @@ export class Player {
     const c = this.equip[slot];
     this.equip[slot] = null;
     this.lostEquip = (this.lostEquip || 0) + 1;
+    // 离开装备区的牌（白银狮子等在失去时生效）
+    (this.lostEquipCards ||= []).push(c);
     return c;
   }
 
@@ -74,7 +78,8 @@ export class Player {
   }
 
   resetTurnFlags() {
-    this.flags = { shaUsed: 0, shaPlayed: false, skipPlay: false };
+    // shaBonus：本回合下一张【杀】的伤害加成（酒）；skipDraw / skipPlay：跳过摸牌 / 出牌阶段（兵粮寸断 / 乐不思蜀）
+    this.flags = { shaUsed: 0, shaPlayed: false, skipPlay: false, skipDraw: false, shaBonus: 0 };
   }
 
   // 某技能在某作用域下的状态对象（不存在时创建）

@@ -23,6 +23,8 @@
 // }
 //
 // 卡牌定义与技能共用 triggers/modifiers/viewAs/ai/prompt 字段：装备牌在装备区时，其效果与技能一样参与结算。
+// 卡牌另有：kind 牌类（火杀 → sha）、nature 属性、rescue 濒死可用（'any' 桃 | 'self' 酒）、
+//   target.max 多目标、recast 可重铸、onLose(game, player, card) 离开装备区时（白银狮子）。
 
 // 引擎提供的全部时机（技能只能挂在这些时机上，完整性测试会校验）
 export const EVENTS = {
@@ -38,7 +40,8 @@ export const EVENTS = {
   targetConfirmed: '【杀】指定目标后 {card, source, target, noShan, nullified}',
   slashDodged: '【杀】被【闪】抵消时，可令其依然命中 {card, source, target, hit}',
   slashMissed: '【杀】最终被抵消后 {card, source, target}',
-  beforeDamage: '造成伤害时，可改变伤害值或防止 {source, target, amount, card, nature, prevented}',
+  beforeDamage: '造成伤害时（来源方：酒、裸衣、古锭刀、寒冰剑），可改变伤害值或防止 {source, target, amount, card, nature, prevented}',
+  receiveDamage: '受到伤害时（目标方：藤甲、白银狮子），可改变伤害值 {source, target, amount, card, nature, prevented}',
   damaged: '受到伤害后 {source, target, amount, card, nature}',
   peachUsed: '濒死时对其使用【桃】 {source, target, amount, notes}',
   afterLoseCards: '失去牌后 {player, lastHand, equips}',
@@ -55,7 +58,8 @@ export const MODIFIERS = {
   extraResponses: 'sum',   // (ctx:{kind, from, to}) 你要求对方额外打出的张数（无双）
   noDistanceLimit: 'any',  // (ctx:{card, from, to}) 你使用该牌无距离限制（奇才）
   ignoreArmor: 'any',      // (ctx:{from, to}) 你的【杀】无视防具（青釭剑）
-  targetable: 'allow',     // (ctx:{card, from, to}) 你能否成为该牌的目标（空城、谦逊）
+  targetable: 'allow',     // (ctx:{card: 牌类, from, to}) 你能否成为该牌的目标（空城、谦逊）
+  effective: 'allow',      // (ctx:{card: 牌, kind: 牌类, nature, from, to}) 该牌对你是否有效（藤甲）
 };
 
 // 牌名/武器攻击范围（由卡牌定义登记时填充，界面与战报直接使用）
@@ -129,6 +133,11 @@ export const judgeSpec = name => JUDGES.get(name) || null;
 // 按 id 查技能或卡牌定义（询问的 reason 即技能/卡牌 id）
 export const defOf = id => SKILLS.get(id) || CARDS.get(id) || null;
 
+// 牌类：火【杀】/雷【杀】的牌类是【杀】（卡牌定义 kind），凡「【杀】」的规则都按牌类判断
+export const kindOf = name => CARDS.get(name)?.kind || name;
+// 属性：normal | fire | thunder
+export const natureOf = name => CARDS.get(name)?.nature || 'normal';
+
 export const skillName = id => SKILLS.get(id)?.name || CARDS.get(id)?.name || id;
 export const skillDesc = id => SKILLS.get(id)?.desc || CARDS.get(id)?.desc || '';
 export const isMale = p => (p.hero || p).gender === 'male';
@@ -192,14 +201,16 @@ export function multiViewAsOf(p, as) {
   return viewAsOf(p).filter(v => v.count > 1 && (!as || v.as === as));
 }
 
-// 阻止某角色成为该牌目标的效果 id（空城、谦逊……），无则 null
-export function targetBlocker(p, ctx, game = null) {
+// 使 allow 型修正返回 false 的效果 id（空城、谦逊、藤甲……），无则 null
+export function effectBlocker(p, key, ctx, game = null) {
   for (const e of effectsOf(p)) {
-    const fn = e.modifiers?.targetable;
+    const fn = e.modifiers?.[key];
     if (fn && fn(ctx, p, game, ctx) === false) return e.id;
   }
   return null;
 }
+
+export const targetBlocker = (p, ctx, game = null) => effectBlocker(p, 'targetable', ctx, game);
 
 // ---------- 主动技能 ----------
 export function activeSkillsOf(p) {

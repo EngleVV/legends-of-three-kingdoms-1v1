@@ -5,7 +5,7 @@ import {
   cardLabel, canTarget, canUseInPlayPhase, canUseZhangbaSha, canRespondWith, shaLeftOf,
   canUseCardAs, equipCardOf, afterLosing, canSecondTarget, conversionOf, typeOfName, pairViewAs,
 } from '../data/cards.js';
-import { getCard, validateSkill, markSkillUsed, skillTargetCandidates, getSkill } from './registry.js';
+import { getCard, validateSkill, markSkillUsed, skillTargetCandidates, getSkill, kindOf } from './registry.js';
 import { handCardOf, realsOf, useLabel } from './util.js';
 
 // ---------- 虚拟牌 ----------
@@ -24,9 +24,11 @@ export function makeVirtual(card, name, via = null) {
 }
 
 // 实体牌以 name 使用/打出时的规范化虚拟牌（由引擎判定转化来源）
+// 牌类相同的本牌（火【杀】当【杀】打出）保留原牌名，以免丢失属性
 export function virtualAs(player, card, name, game = null) {
   const cv = conversionOf(player, card, name, game);
-  return makeVirtual(card, name, cv?.skill || null);
+  const keep = !cv && card.name !== name && kindOf(card.name) === name;
+  return makeVirtual(card, keep ? card.name : name, cv?.skill || null);
 }
 
 // 多张实体牌合成一张虚拟牌（丈八蛇矛：两张手牌当【杀】）。合成牌无花色/点数。
@@ -110,9 +112,22 @@ export function playedLog(game, player, v, suffix = '') {
   if (!v.effectOnly) game.log(`${player.name} 打出 ${useLabel(v)}${suffix}`);
 }
 
+// ---------- 重铸：将牌置入弃牌堆并摸一张牌（不是使用，不触发集智等） ----------
+export function recastCard(game, player, card) {
+  const real = card && player.hand.find(h => h.id === (card.real || card).id);
+  if (!real || !getCard(real.name)?.recast) return false;
+  player.removeFromHand([real]);
+  game.discardCards([real]);
+  game.lastAction = { player, card: real, targets: [] };
+  game.log(`${player.name} 重铸 ${cardLabel(real)}`);
+  game.drawCards(player, 1);
+  return true;
+}
+
 // ---------- 出牌阶段使用一张牌 ----------
-// action = { card, targets, victim } | { cards: [...], as, targets }（多张当一张）
+// action = { card, targets, victim } | { cards: [...], as, targets }（多张当一张）| { card, recast: true }
 export async function resolveCardUse(game, player, action) {
+  if (action.recast) { recastCard(game, player, action.card); return; }
   const { card: raw, targets = [] } = action;
   // 统一为虚拟牌：单张按「实体牌 + 使用名」重新规范化，由引擎判定转化来源（不信任调用方传入的 type/via）
   const composite = Array.isArray(action.cards) && action.cards.length > 1;
@@ -147,10 +162,14 @@ export async function resolveCardUse(game, player, action) {
     return;
   }
 
-  // 3) 目标合法性（以装备区的牌转化时按失去该装备后的距离判定）
+  // 3) 目标合法性（以装备区的牌转化时按失去该装备后的距离判定；多目标的牌逐个校验）
   if (def.target) {
-    const target = targets[0];
-    if (!target || !target.alive || !canTarget(game, afterLosing(player, reals), target, card.name)) {
+    const min = def.target.min ?? 1;
+    const max = def.target.max ?? 1;
+    const self = afterLosing(player, reals);
+    const distinct = new Set(targets.map(t => t?.seat)).size === targets.length;
+    if (targets.length < min || targets.length > max || !distinct
+      || !targets.every(t => t && t.alive && canTarget(game, self, t, card.name))) {
       reject('目标不合法');
       return;
     }

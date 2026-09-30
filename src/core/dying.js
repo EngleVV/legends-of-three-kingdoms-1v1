@@ -1,6 +1,6 @@
 // 濒死求桃：从当前回合角色开始轮流询问，出桃回复体力，直到体力 > 0 或无人再出
 import { handCardOf } from './util.js';
-import { canUseCardAs, cardLabel, canRespondWith, equipCardOf, conversionOf } from '../data/cards.js';
+import { cardLabel, equipCardOf, conversionOf, rescueAs, canRescue, CARD_NAME } from '../data/cards.js';
 import { killPlayer } from './identity.js';
 import { skillName } from './registry.js';
 
@@ -10,20 +10,21 @@ export async function handleDying(game, target, killer = null) {
     let saved = false;
     for (const p of game.seatOrder()) {
       if (target.hp > 0) break;
-      // 打不出【桃】（含急救等转化）时直接跳过，避免弹出无意义的询问
-      if (!p.alive || !canRespondWith(p, 'tao', game)) continue;
+      // 没有可用于求救的牌（桃、自己濒死时的酒，含急救等转化）时直接跳过，避免弹出无意义的询问
+      if (!p.alive || !canRescue(game, p, target)) continue;
       const r = await game.ask(p, 'askPeach', { dying: target });
       const picked = handCardOf(p, r) || equipCardOf(p, r?.card || r);
-      // 必须是【桃】或经合法转化当【桃】，不允许用其他牌冒充
-      const card = picked && canUseCardAs(p, picked, 'tao', game) ? picked : null;
-      if (!card) continue;
+      // 必须是可求救的牌或经合法转化，不允许用其他牌冒充
+      const name = picked && rescueAs(game, p, target, picked);
+      if (!name) continue;
+      const card = picked;
       p.removeCards([card]);
       game.discardCards([card]);
-      const via = conversionOf(p, card, 'tao', game)?.skill;
+      const via = conversionOf(p, card, name, game)?.skill;
       // 对濒死角色使用【桃】时：技能可增加回复量（救援）
-      const ctx = await game.trigger('peachUsed', { source: p, target, amount: 1, notes: [] });
+      const ctx = await game.trigger('peachUsed', { source: p, target, amount: 1, notes: [], card: name });
       target.hp += ctx.amount;
-      const used = via ? `${cardLabel(card)} 当【桃】（${skillName(via)}）` : cardLabel(card);
+      const used = via ? `${cardLabel(card)} 当【${CARD_NAME[name]}】（${skillName(via)}）` : cardLabel(card);
       const notes = ctx.notes.map(n => `（${n}）`).join('');
       game.log(`${p.name} 对 ${p === target ? '自己' : target.name} 使用 ${used}${notes}，${target.name} 回复至 ${target.hp} 血`);
       game.recordRelation(p, target, 'help');

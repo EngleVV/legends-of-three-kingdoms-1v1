@@ -1,4 +1,4 @@
-import { defineSkill } from '../../../core/registry.js';
+import { defineSkill, kindOf } from '../../../core/registry.js';
 import { canUseAsSha, inAttackRange } from '../../../data/cards.js';
 import { isEnemy } from '../../../ai/util.js';
 
@@ -16,14 +16,14 @@ export default defineSkill({
     },
     beforeDamage: {
       locked: true,
-      can: (ctx, owner) => ctx.source === owner && !!owner.st('turn', 'luoyi').on && ['sha', 'juedou'].includes(ctx.card?.name),
+      can: (ctx, owner) => ctx.source === owner && !!owner.st('turn', 'luoyi').on && !!ctx.card && ['sha', 'juedou'].includes(kindOf(ctx.card.name)),
       run(ctx) { ctx.amount += 1; },
     },
   },
   ai: {
     // 手里有【杀】或【决斗】且有敌人可打时发动
     invoke: (game, p) => {
-      const hasAtk = p.hand.some(c => c.name === 'sha' || c.name === 'juedou' || canUseAsSha(p, c, game));
+      const hasAtk = p.hand.some(c => ['sha', 'juedou'].includes(kindOf(c.name)) || canUseAsSha(p, c, game));
       return hasAtk && game.others(p).some(o => isEnemy(game, p, o) && inAttackRange(p, o, game));
     },
   },
