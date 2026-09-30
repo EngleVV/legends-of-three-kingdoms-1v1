@@ -43,7 +43,7 @@ async function waitMode(target, timeout = 60000) {
       await page.evaluate(() => {
         const ui = window.__ui(); const p = ui.pending; const me = window.__sg().players[0];
         if (p.mode === 'pick-hand') ui._finish(me.hand.slice(0, p.opts.opts.count));
-        else if (p.mode === 'guanxing') ui._finish({ top: p.gx.top, bottom: p.gx.bottom });
+        else if (p.mode === 'arrange') ui._finish({ top: p.gx.top, bottom: p.gx.bottom });
         else if (p.mode === 'pick-zone') ui._finish(['hand']);
         else if (p.mode === 'pick-wugu') ui._finish([p.opts.opts.info.candidates[0]]);
         else ui._finish(p.mode === 'invoke' ? false : null);
@@ -127,7 +127,7 @@ check(await page.evaluate(id => window.__sg().players[0].hand.some(c => c.id ===
 // 结束本回合，等下个回合准备阶段
 await waitMode('play');
 await page.click('#banner [data-action="end-play"]');
-await waitMode('guanxing', 90000);
+await waitMode('arrange', 90000);
 check(await page.locator('#picker .picker-title').textContent() === '观星', '观星弹出面板');
 const topIds = () => page.evaluate(() => window.__ui().pending.gx.top.map(c => c.id));
 const botIds = () => page.evaluate(() => window.__ui().pending.gx.bottom.map(c => c.id));
@@ -149,7 +149,7 @@ await page.mouse.up();
 await page.waitForTimeout(100);
 check((await topIds()).join() === [init[0], init[1]].join(), '拖到另一张之前：插入牌堆顶首位');
 check((await botIds()).length === 0, '牌堆底已清空');
-await page.click('#picker [data-action="confirm-guanxing"]');
+await page.click('#picker [data-action="confirm-arrange"]');
 await page.waitForTimeout(100);
 // 摸牌阶段按顺序摸到这两张
 const drew = await page.evaluate(ids => ids.every(id => window.__sg().players[0].hand.some(c => c.id === id)), init);

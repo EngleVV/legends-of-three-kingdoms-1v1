@@ -6,7 +6,8 @@ import { AIController } from '../src/ai/ai-controller.js';
 import { Controller } from '../src/controller.js';
 import { HEROES } from '../src/data/heroes.js';
 import { distance, legalTargets, canJiedaoVictim } from '../src/data/cards.js';
-import { makeVirtual, resolveCardUse, resolveSlash, useSkill } from '../src/core/card-use.js';
+import {makeVirtual, resolveCardUse, useSkill } from '../src/core/card-use.js';
+import { resolveSlash } from '../src/packs/standard/cards/basic.js';
 import { applyDamage } from '../src/core/damage.js';
 import { runTurn, resolveJudgeZone } from '../src/core/turn.js';
 import { checkWinner, killPlayer, lordCandidates, LORD_HEROES } from '../src/core/identity.js';
@@ -63,7 +64,6 @@ test('主公：明置身份、体力上限 +1、先行；起手各 4 张', async
 
 test('阵亡：弃置全部牌、亮明身份；杀死反贼者摸三张', async () => {
   const g = mk(IDS);
-  g.registerHeroHooks();
   const [lord, , rebel] = g.players;
   rebel.hp = 1;
   rebel.hand = [draw(g, 'shan')];
@@ -78,7 +78,6 @@ test('阵亡：弃置全部牌、亮明身份；杀死反贼者摸三张', async
 
 test('阵亡：主公杀死忠臣须弃置所有手牌与装备', async () => {
   const g = mk(IDS);
-  g.registerHeroHooks();
   const [lord, loyal] = g.players;
   loyal.hp = 1; loyal.hand = [];
   lord.hand = [draw(g, 'tao'), draw(g, 'shan')];
@@ -116,7 +115,6 @@ test('killPlayer 分出胜负后立即结束，不再发奖励', () => {
 
 test('南蛮入侵：依次结算其他角色，跳过阵亡者，自己不受影响', async () => {
   const g = mk(IDS);
-  g.registerHeroHooks();
   const [a, ...rest] = g.players;
   const nm = draw(g, 'nanman');
   a.hand = [nm];
@@ -147,7 +145,6 @@ test('闪电：判定未中时移至下一名存活且判定区无闪电的角�
 
 test('借刀杀人：两个目标，第二目标须在持武器者攻击范围内且不是其本人', async () => {
   const g = mk(IDS, { ctrls: [new Script(), new Script(), new Script(), new AIController(), new Script()] });
-  g.registerHeroHooks();
   const [a, , , d, e] = g.players;
   d.equip.weapon = draw(g, 'qinglong'); // 攻击范围 3
   d.hand = [draw(g, 'sha')];
@@ -175,7 +172,6 @@ test('合法目标：【杀】只能指定攻击范围内的角色', () => {
 test('激将：主公刘备需要【杀】时可令蜀势力角色代出；出牌阶段也可发动', async () => {
   const give = new Script({ async askRespondCard(p, req) { return p.hand.find(c => c.name === 'sha'); } });
   const g = mk(IDS, { ctrls: [new Script({ async askSkillInvoke(p, id) { return id === 'jijiang'; } }), give, new Script(), new Script(), new Script()] });
-  g.registerHeroHooks();
   const [lb, gy, , cc] = g.players;
   const nm = draw(g, 'nanman');
   cc.hand = [nm];
@@ -202,7 +198,6 @@ test('护驾：主公曹操需要【闪】时可令魏势力角色代出；非�
     new Script({ async askSkillInvoke(p, id) { return id === 'hujia'; } }),
     new Script({ async askRespondCard(p) { return p.hand.find(c => c.name === 'shan'); } }),
     new Script(), new Script(), new Script()] });
-  g.registerHeroHooks();
   const [cc, sy, zf] = g.players;
   cc.hand = []; sy.hand = [draw(g, 'shan')];
   await resolveSlash(g, zf, cc, makeVirtual(draw(g, 'sha'), 'sha'));

@@ -64,8 +64,8 @@ async function ensurePlayPhase() {
       if (!pick.disabled) click(pick);
       else if (unselected.length) click(unselected[0]);
       else if (find('cancel')) click(find('cancel'));
-    } else if (find('confirm-guanxing')) {
-      click(find('confirm-guanxing'));
+    } else if (find('confirm-arrange')) {
+      click(find('confirm-arrange'));
     } else {
       const zone = actions.find(b => b.dataset.action.startsWith('zone:') || b.dataset.action.startsWith('wugu:'));
       const simple = ['cancel', 'no'].map(find).find(b => b && !b.disabled);
@@ -293,7 +293,7 @@ normalizeOpp(g);
 if (!me.hero.skills.includes('zhiheng')) me.hero = { ...me.hero, skills: [...me.hero.skills, 'zhiheng'] };
 me.equip['horse+'] = grab('ma+1');
 me.hand = [grab('sha')].filter(Boolean);
-me.flags.zhihengUsed = false;
+me.resetState('phase');
 g.notify();
 await sleep(10);
 const zhBtn = $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === 'skill-zhiheng');
@@ -309,7 +309,7 @@ if (zhBtn) {
     click(equipSel[0]);
     await sleep(10);
     check($$('#self-row .card.selected').length === 1, '点击装备后被选中');
-    const ok = $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === 'confirm-zhiheng');
+    const ok = $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === 'confirm-skill');
     check(!!ok && !ok.disabled, '选中装备后「确定」可用');
   }
   const back = $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === 'cancel-skill');
@@ -322,7 +322,7 @@ normalizeOpp(g);
 if (!me.hero.skills.includes('zhiheng')) me.hero = { ...me.hero, skills: [...me.hero.skills, 'zhiheng'] };
 me.equip['horse+'] = grab('ma+1');
 me.hand = [grab('sha'), grab('shan'), grab('wuzhong')].filter(Boolean);
-me.flags.zhihengUsed = false;
+me.resetState('phase');
 g.notify();
 await sleep(10);
 {
@@ -349,7 +349,7 @@ await sleep(10);
   const discarded = [];
   const origDiscard = g.discardCards.bind(g);
   g.discardCards = (cards, ...rest) => { discarded.push(...cards.map(c => c.id)); return origDiscard(cards, ...rest); };
-  click(findBtn('confirm-zhiheng'));
+  click(findBtn('confirm-skill'));
   await sleep(30);
   g.discardCards = origDiscard;
   check(chosenIds.every(id => discarded.includes(id)), `选中的 ${total} 张全部被弃置`);

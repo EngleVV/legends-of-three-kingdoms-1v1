@@ -9,7 +9,9 @@ import {
   buildStandardDeck, isRed, canTarget, distance, attackRange,
   canUseInPlayPhase, canUseAsSha, shaLimitOf, shaLeftOf,
 } from '../src/data/cards.js';
-import { makeVirtual, resolveCardUse, resolveSlash, useSkill, shaLimitLeft, validResponse } from '../src/core/card-use.js';
+import {makeVirtual, resolveCardUse, useSkill, shaLimitLeft, validResponse } from '../src/core/card-use.js';
+import { resolveSlash } from '../src/packs/standard/cards/basic.js';
+import { usesLeft } from '../src/core/registry.js';
 import { handleDying as handleDyingImported } from '../src/core/dying.js';
 import { applyDamage as applyDamageImported } from '../src/core/damage.js';
 import { runTurn } from '../src/core/turn.js';
@@ -44,7 +46,6 @@ const vsha = (card) => makeVirtual(card, 'sha');
 // ---------- 仁德 ----------
 test('仁德：给 1 张无回复，累计满 2 张回复 1 点（仅一次）', async () => {
   const g = mkGame('liubei', 'caocao', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [lb, cc] = g.players;
   const c1 = takeCard(g, 'sha'), c2 = takeCard(g, 'shan');
   lb.hand = [c1, c2];
@@ -62,7 +63,6 @@ test('仁德：给 1 张无回复，累计满 2 张回复 1 点（仅一次）',
 test('武圣：红色牌转化为杀使用并造成伤害', async () => {
   // 目标用孙权，避免奸雄把伤害牌拿走影响断言
   const g = mkGame('guanyu', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [gy, cc] = g.players;
   const redShan = g.deck.cards.find(c => c.name === 'shan' && isRed(c));
   assert.ok(redShan, '牌堆应有红色闪');
@@ -89,7 +89,6 @@ test('武圣：validResponse 转化校验', async () => {
 // ---------- 咆哮 / 诸葛连弩 ----------
 test('咆哮：杀次数无限制', async () => {
   const g = mkGame('zhangfei', 'caocao', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [zf] = g.players;
   zf.flags.shaUsed = 3;
   assert.strictEqual(await shaLimitLeft(g, zf), Infinity);
@@ -100,7 +99,6 @@ test('咆哮：杀次数无限制', async () => {
 
 test('诸葛连弩：装备后杀次数无限制', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [cc] = g.players;
   cc.flags.shaUsed = 2;
   cc.equip.weapon = takeCard(g, 'zhugenu');
@@ -114,7 +112,6 @@ test('八卦阵：判定红色视为闪，免伤', async () => {
     new AIController(),
     new ScriptController({ async askSkillInvoke(p, id) { return id === 'bagua'; } }),
     m => logs.push(m));
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   cc.equip.armor = takeCard(g, 'bagua');
   cc.hand = [];
@@ -134,7 +131,6 @@ test('贯石斧：被闪后弃 2 张牌强制命中', async () => {
       async askChooseCards(p, opts) { return opts.reason === 'guanshi' ? p.hand.slice(0, 2) : null; },
     }),
     new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   cc.equip.weapon = takeCard(g, 'guanshi');
   const d1 = takeCard(g, 'wuzhong'), d2 = takeCard(g, 'le');
@@ -155,7 +151,6 @@ test('麒麟弓：命中后弃对方一匹马', async () => {
       async askChooseCards(p, opts) { return opts.reason === 'qilin' ? ['horse+'] : null; },
     }),
     new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   cc.equip.weapon = takeCard(g, 'qilin');
   const horse = takeCard(g, 'ma+1');
@@ -175,7 +170,6 @@ test('青龙偃月刀：被闪后可追加杀', async () => {
       async askRespondCard(p, req) { return req.reason === 'qinglong' ? p.hand.find(c => c.name === 'sha') : null; },
     }),
     new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   cc.equip.weapon = takeCard(g, 'qinglong');
   const chaseSha = takeCard(g, 'sha');
@@ -196,7 +190,6 @@ test('雌雄双股剑：同性目标不触发', async () => {
   const g = mkGame('caocao', 'sunquan',
     new ScriptController({ async askSkillInvoke(p, id) { invoked.push(id); return true; } }),
     new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   cc.equip.weapon = takeCard(g, 'cixiong');
   sq.hand = [takeCard(g, 'wuzhong')]; // 非闪牌，避免 AI 出闪干扰断言
@@ -212,7 +205,6 @@ const passive = () => new ScriptController({ async askPlayCard() { return null; 
 // ---------- 闪电 ----------
 test('闪电：黑桃2-9 命中造成 3 点雷电伤害', async () => {
   const g = mkGame('caocao', 'sunquan', passive(), new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   const shandian = takeCard(g, 'shandian');
   cc.judgeZone = [shandian];
@@ -226,7 +218,6 @@ test('闪电：黑桃2-9 命中造成 3 点雷电伤害', async () => {
 
 test('闪电：非黑桃2-9 移至对方判定区', async () => {
   const g = mkGame('caocao', 'sunquan', passive(), new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   const shandian = takeCard(g, 'shandian');
   cc.judgeZone = [shandian];
@@ -271,7 +262,6 @@ test('距离：自己 -1 马或长兵器可抵消对方 +1 马', async () => {
 
 test('距离：引擎拒绝超范围的杀（不消耗手牌）', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   sq.equip['horse+'] = takeCard(g, 'ma+1');
   sq.hand = [];
@@ -285,7 +275,6 @@ test('距离：引擎拒绝超范围的杀（不消耗手牌）', async () => {
 
 test('制衡：可弃置装备区的牌（官方「弃置任意张牌」）', async () => {
   const g = mkGame('sunquan', 'caocao', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [sq] = g.players;
   const horse = drawOut(g, 'ma+1');
   const handCard = drawOut(g, 'wuzhong');
@@ -301,15 +290,13 @@ test('制衡：可弃置装备区的牌（官方「弃置任意张牌」）', as
 
 test('制衡：不能弃置不属于自己的牌', async () => {
   const g = mkGame('sunquan', 'caocao', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [sq, cc] = g.players;
   const oppCard = drawOut(g, 'sha');
   cc.hand = [oppCard];
   sq.hand = [];
-  sq.flags = { zhihengUsed: false };
   await useSkill(g, sq, { skillId: 'zhiheng', cards: [oppCard] });
   assert.ok(cc.hand.some(c => c.id === oppCard.id), '对方手牌不应被弃');
-  assert.strictEqual(sq.flags.zhihengUsed, false, '非法调用不应消耗每回合限次');
+  assert.strictEqual(usesLeft(sq, 'zhiheng'), 1, '非法调用不应消耗每回合限次');
 });
 
 test('反馈：不能获得伤害来源判定区的牌（官方「角色的牌」不含判定区）', async () => {
@@ -321,7 +308,6 @@ test('反馈：不能获得伤害来源判定区的牌（官方「角色的牌�
       async askChooseCards(p, opts) { return opts.reason === 'fankui' ? ['le'] : null; },
     }),
     new AIController());
-  g.registerHeroHooks();
   const [sy, cc] = g.players;
   const le = drawOut(g, 'le');
   cc.judgeZone = [le];
@@ -344,7 +330,6 @@ test('反馈：可获得伤害来源装备区的牌', async () => {
       async askChooseCards(p, opts) { return opts.reason === 'fankui' ? ['weapon'] : null; },
     }),
     new AIController());
-  g.registerHeroHooks();
   const [sy, cc] = g.players;
   const weapon = drawOut(g, 'qinglong');
   cc.equip.weapon = weapon;
@@ -361,7 +346,6 @@ test('冒充：任意牌不能当【无懈可击】', async () => {
     new AIController(),
     // 恶意控制器：被问无懈时返回一张【杀】
     new ScriptController({ async askNullify(p) { return p.hand.find(c => c.name === 'sha'); } }));
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   const wz = drawOut(g, 'wuzhong');
   cc.hand = [wz];
@@ -376,7 +360,6 @@ test('冒充：任意牌不能当【桃】救命', async () => {
   const g = mkGame('caocao', 'sunquan',
     new ScriptController({ async askPeach(p) { return p.hand.find(c => c.name !== 'tao'); } }),
     new ScriptController({ async askPeach() { return null; } }));
-  g.registerHeroHooks();
   const [cc] = g.players;
   const fake = drawOut(g, 'sha');
   cc.hand = [fake, drawOut(g, 'tao')]; // 有桃才会被询问
@@ -425,7 +408,6 @@ test('转化：关羽的武圣仍可正常把红牌当杀打出', async () => {
 // ---------- 出牌阶段合法性（引擎强制） ----------
 test('出牌合法性：【闪】【无懈可击】不能主动使用', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   for (const name of ['shan', 'wuxie']) {
     const c = drawOut(g, name);
@@ -438,7 +420,6 @@ test('出牌合法性：【闪】【无懈可击】不能主动使用', async ()
 
 test('出牌合法性：一回合只能出一张【杀】', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   const s1 = drawOut(g, 'sha'), s2 = drawOut(g, 'sha');
   cc.hand = [s1, s2];
@@ -458,7 +439,6 @@ test('出牌合法性：一回合只能出一张【杀】', async () => {
 
 test('出牌合法性：诸葛连弩/咆哮令杀不限次数', async () => {
   const g = mkGame('zhangfei', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [zf, sq] = g.players;
   zf.flags = { shaUsed: 5 };
   assert.strictEqual(shaLimitOf(zf), Infinity, '咆哮应不限次数');
@@ -478,7 +458,6 @@ test('出牌合法性：诸葛连弩/咆哮令杀不限次数', async () => {
 
 test('出牌合法性：桃体力满时不可用、闪电不可重复置入', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [cc] = g.players;
   const tao = drawOut(g, 'tao');
   cc.hand = [tao];
@@ -499,7 +478,6 @@ test('出牌合法性：桃体力满时不可用、闪电不可重复置入', as
 
 test('出牌合法性：乐不思蜀不可重复、借刀杀人需对方有武器', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   const le1 = drawOut(g, 'le'), le2 = drawOut(g, 'le');
   sq.judgeZone = [le1];
@@ -517,7 +495,6 @@ test('出牌合法性：乐不思蜀不可重复、借刀杀人需对方有武�
 
 test('武圣：关羽可在出牌阶段将红色牌当杀使用', async () => {
   const g = mkGame('guanyu', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [gy, sq] = g.players;
   const redCard = drawOutBy(g, c => isRed(c) && c.name !== 'sha' && c.name !== 'tao');
   gy.hand = [redCard];
@@ -532,7 +509,6 @@ test('武圣：关羽可在出牌阶段将红色牌当杀使用', async () => {
 
 test('武圣：非关羽不能把红牌当杀', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   const redCard = drawOutBy(g, c => isRed(c) && c.name !== 'sha');
   cc.hand = [redCard];
@@ -550,7 +526,6 @@ test('无懈可击：手里没有无懈时不询问', async () => {
   const g = mkGame('caocao', 'sunquan',
     new ScriptController({ async askNullify() { asked++; return null; } }),
     new ScriptController({ async askNullify() { asked++; return null; } }));
-  g.registerHeroHooks();
   const [cc] = g.players;
   const wz = drawOut(g, 'wuzhong');
   cc.hand = [wz];
@@ -577,7 +552,6 @@ test('求闪/求杀：无对应牌时不询问', async () => {
         return null;
       },
     }));
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   sq.hand = []; // 没有闪
   await resolveSlash(g, cc, sq, makeVirtual(drawOut(g, 'sha'), 'sha'));
@@ -595,7 +569,6 @@ test('濒死求桃：手里没有桃时不询问', async () => {
   const g = mkGame('caocao', 'sunquan',
     new ScriptController({ async askPeach() { asked++; return null; } }),
     new ScriptController({ async askPeach() { asked++; return null; } }));
-  g.registerHeroHooks();
   const [cc] = g.players;
   cc.hand = []; g.players[1].hand = [];
   cc.hp = 0;
@@ -607,7 +580,6 @@ test('濒死求桃：手里没有桃时不询问', async () => {
 // ---------- 丈八蛇矛 ----------
 test('丈八蛇矛：两张手牌当杀使用，命中并弃置两张', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   cc.equip.weapon = takeCard(g, 'zhangba');
   const a = drawOut(g, 'wuzhong'), b = drawOut(g, 'le');
@@ -629,7 +601,6 @@ test('丈八蛇矛：可作为响应打出的杀（决斗）', async () => {
         return spare.length >= 2 ? { cards: spare.slice(0, 2), as: 'sha' } : null;
       },
     }));
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   sq.equip.weapon = takeCard(g, 'zhangba');
   sq.hand = [drawOut(g, 'wuzhong'), drawOut(g, 'le')];
@@ -644,7 +615,6 @@ test('丈八蛇矛：可作为响应打出的杀（决斗）', async () => {
 
 test('丈八蛇矛：无该武器时拒绝合成杀', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   const a = drawOut(g, 'wuzhong'), b = drawOut(g, 'le');
   cc.hand = [a, b];
@@ -660,7 +630,7 @@ test('观星：准备阶段发动，top 置于牌堆顶、bottom 沉底', async 
   let asked = null;
   const g = mkGame('zhugeliang', 'caocao',
     new ScriptController({
-      async askGuanxing(p, cards) {
+      async askArrange(p, { cards }) {
         asked = cards;
         // 第二张置顶、第一张沉底，验证顺序确实生效
         return { top: [cards[1]], bottom: [cards[0]] };
@@ -668,7 +638,6 @@ test('观星：准备阶段发动，top 置于牌堆顶、bottom 沉底', async 
       async askPlayCard() { return null; },
     }),
     new AIController());
-  g.registerHeroHooks();
   const [zl] = g.players;
   zl.hand = [];
   await runTurn(g, zl);
@@ -681,11 +650,10 @@ test('观星：准备阶段发动，top 置于牌堆顶、bottom 沉底', async 
 test('观星：未分配的牌一律沉底，不会丢牌', async () => {
   const g = mkGame('zhugeliang', 'caocao',
     new ScriptController({
-      async askGuanxing() { return { top: [], bottom: [] }; }, // 故意不分配
+      async askArrange() { return { top: [], bottom: [] }; }, // 故意不分配
       async askPlayCard() { return null; },
     }),
     new AIController());
-  g.registerHeroHooks();
   const [zl] = g.players;
   zl.hand = [];
   const total = () => g.deck.cards.length + g.deck.discardPile.length
@@ -710,7 +678,6 @@ test('闪电：命中后曹操可用奸雄获得该闪电牌', async () => {
       },
     }),
     new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   const shandian = drawOut(g, 'shandian');
   cc.judgeZone = [shandian];
@@ -728,7 +695,6 @@ test('判定区结算：牌总数守恒（无重复弃置/丢牌）', async () =
   const g = mkGame('sunquan', 'caocao',
     new ScriptController({ async askPlayCard() { return null; }, async askChooseCards() { return null; } }),
     new AIController());
-  g.registerHeroHooks();
   const [sq] = g.players;
   const le = drawOut(g, 'le');
   const shandian = drawOut(g, 'shandian');
@@ -755,7 +721,6 @@ test('判定区结算：牌总数守恒（无重复弃置/丢牌）', async () =
 // ---------- 装备替换 ----------
 test('装备：经 resolveCardUse 使用后应进入正确栏位（含马）', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [cc] = g.players;
   const expect = { weapon: 'qinglong', armor: 'bagua', 'horse+': 'ma+1', 'horse-': 'ma-1' };
   for (const name of ['qinglong', 'bagua', 'ma+1', 'ma-1']) {
@@ -786,7 +751,6 @@ test('装备：同槽位替换后旧装备进弃牌堆', async () => {
 // ---------- 借刀杀人 ----------
 test('借刀杀人：目标无杀时武器归使用者', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   const weapon = takeCard(g, 'qinglong');
   sq.equip.weapon = weapon;
@@ -803,7 +767,6 @@ test('过河拆桥：目标无牌时安全跳过', async () => {
   const g = mkGame('caocao', 'sunquan',
     new AIController(),
     new ScriptController({ async askChooseCards() { return null; } }));
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   sq.hand = [];
   const guohe = takeCard(g, 'guohe');
@@ -818,7 +781,6 @@ test('顺手牵羊：获得对方手牌', async () => {
   const g = mkGame('caocao', 'sunquan',
     new ScriptController({ async askChooseCards(p, opts) { return opts.reason === 'shunshou' ? ['hand'] : null; } }),
     new AIController());
-  g.registerHeroHooks();
   const [cc, sq] = g.players;
   const target = takeCard(g, 'shan');
   sq.hand = [target];
@@ -835,14 +797,13 @@ test('判定：判定牌登记到处理区，鬼才询问期间可见，改判�
   let seenDuringAsk = null;
   const g = mkGame('simayi', 'caocao',
     new ScriptController({
-      async askChooseJudgeReplace(p, info) {
+      async askChooseCards(p, opts) {
         // 询问改判时，处理区应已展示当前判定牌、结果尚未揭晓
         seenDuringAsk = { id: g.lastAction?.card.id, result: g.lastAction?.judge?.result };
-        return p.hand[0];
+        return [p.hand[0]];
       },
     }),
     new AIController());
-  g.registerHeroHooks();
   const [smy, cc] = g.players;
   const spade5 = drawOutBy(g, c => c.suit === '♠' && c.rank === 5);   // 闪电命中牌
   const heart = drawOutBy(g, c => c.suit === '♥');                      // 改判用

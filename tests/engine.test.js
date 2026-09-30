@@ -9,7 +9,8 @@ import { handleDying } from '../src/core/dying.js';
 import { doJudge } from '../src/core/judge.js';
 import { resolveTrick } from '../src/core/nullify-chain.js';
 import { applyDamage } from '../src/core/damage.js';
-import { resolveSlash, useSkill } from '../src/core/card-use.js';
+import {useSkill } from '../src/core/card-use.js';
+import { resolveSlash } from '../src/packs/standard/cards/basic.js';
 
 function mkGame(h1, h2, c1, c2, logger = () => {}) {
   return new Game({ heroes: [HEROES[h1], HEROES[h2]], controllers: [c1, c2], logger });
@@ -48,7 +49,6 @@ test('AI vs AI：20 局随机对局不崩溃', async () => {
 // ---------- 濒死 ----------
 test('濒死：自己连续用两棵桃从 -1 回到 1', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [a] = g.players;
   const tao1 = takeCard(g, 'tao');
   const tao2 = g.deck.cards.find(c => c.name === 'tao' && c.id !== tao1.id);
@@ -62,7 +62,6 @@ test('濒死：自己连续用两棵桃从 -1 回到 1', async () => {
 
 test('濒死：无桃则死亡，对方获胜', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [a] = g.players;
   a.hand = [];
   a.hp = 0;
@@ -74,11 +73,10 @@ test('濒死：无桃则死亡，对方获胜', async () => {
 // ---------- 判定 & 鬼才 ----------
 test('鬼才：司马懿用手牌改判', async () => {
   const g = mkGame('simayi', 'caocao', new ScriptController({
-    async askChooseJudgeReplace(p, info) {
-      return p.hand[0];
+    async askChooseCards(p, opts) {
+      return opts.reason === 'guicai' ? [p.hand[0]] : null;
     },
   }), new AIController());
-  g.registerHeroHooks();
   const [a] = g.players;
   // 塞一张手牌作为改判牌（非黑桃2-9）
   const replaceCard = g.deck.cards.find(c => c.suit === '♥') || g.deck.cards[0];
@@ -93,12 +91,11 @@ test('鬼才：司马懿用手牌改判', async () => {
 
 test('鬼才：可改对方的判定牌', async () => {
   const g = mkGame('simayi', 'caocao', new ScriptController({
-    async askChooseJudgeReplace(p, info) {
-      assert.strictEqual(info.player, g.players[1], '应收到判定者信息');
-      return p.hand[0];
+    async askChooseCards(p, opts) {
+      assert.strictEqual(opts.info.player, g.players[1], '应收到判定者信息');
+      return [p.hand[0]];
     },
   }), new AIController());
-  g.registerHeroHooks();
   const [sy, cc] = g.players;
   const replaceCard = g.deck.cards.find(c => c.suit === '♥');
   sy.hand = [replaceCard];
@@ -127,7 +124,6 @@ test('无懈链：无懈→反无懈 后效果生效', async () => {
       },
     })
   );
-  g.registerHeroHooks();
   const [a, b] = g.players;
   a.hand = []; b.hand = [wx1]; a.hand.push(wx2);
   let applied = false;
@@ -148,7 +144,6 @@ test('无懈链：单次无懈 → 效果无效', async () => {
       async askNullify(p, effect) { return effect.isNullify ? null : wx1; },
     })
   );
-  g.registerHeroHooks();
   const [, b] = g.players;
   b.hand = [wx1];
   let applied = false;
@@ -162,7 +157,6 @@ test('无懈链：单次无懈 → 效果无效', async () => {
 // ---------- 奸雄 ----------
 test('奸雄：曹操受伤后获得伤害牌', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [a] = g.players;
   const sha = takeCard(g, 'sha');
   g.discardCards([sha], { pending: true });
@@ -174,7 +168,6 @@ test('奸雄：曹操受伤后获得伤害牌', async () => {
 // ---------- 空城 ----------
 test('空城：无手牌的诸葛亮不能成为杀的目标', async () => {
   const g = mkGame('zhugeliang', 'caocao', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [zl, cc] = g.players;
   zl.hand = [];
   const sha = takeCard(g, 'sha');
@@ -199,7 +192,6 @@ test('无双：吕布的杀需要两张闪', async () => {
       },
     })
   );
-  g.registerHeroHooks();
   const [lb, cc] = g.players;
   const shan = g.deck.cards.find(c => c.name === 'shan');
   cc.hand = [shan];
@@ -214,7 +206,6 @@ test('无双：吕布的杀需要两张闪', async () => {
 // ---------- 制衡 ----------
 test('制衡：弃 2 摸 2，每回合一次', async () => {
   const g = mkGame('sunquan', 'caocao', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [sq] = g.players;
   const c1 = g.deck.cards[0], c2 = g.deck.cards[1];
   sq.hand = [c1, c2];
@@ -228,7 +219,6 @@ test('制衡：弃 2 摸 2，每回合一次', async () => {
 // ---------- 判定区：乐不思蜀 ----------
 test('乐不思蜀：判定非红桃跳过出牌阶段', async () => {
   const g = mkGame('caocao', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [a] = g.players;
   const le = takeCard(g, 'le');
   a.judgeZone = [le];

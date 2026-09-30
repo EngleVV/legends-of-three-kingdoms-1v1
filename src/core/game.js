@@ -1,21 +1,12 @@
+import '../packs/index.js';
 import { Deck } from './deck.js';
 import { Player } from '../player.js';
 import { buildStandardDeck, cardLabel, judgeName } from '../data/cards.js';
-import { hasSkill } from '../data/heroes.js';
+import { EVENTS, effectsOf, skillName } from './registry.js';
 import { handleDying } from './dying.js';
-import { SKILL_REGISTRY } from '../data/skills/index.js';
 import { runTurn } from './turn.js';
 import { applyDamage } from './damage.js';
 import { dealRoles, ROLE_NAME, SIDE_NAME } from './identity.js';
-
-// 时机常量
-export const Trigger = {
-  PHASE_START: 'phaseStart',       // {player, phase}
-  PHASE_END: 'phaseEnd',           // {player}
-  BECOME_TARGET: 'becomeTarget',   // {card, source, target} → {blocked:true} 拦截
-  DAMAGED: 'damaged',              // {source, target, amount, card, nature}
-  BEFORE_JUDGE: 'beforeJudge',     // {player, judgeCard, reason} → {card} 改判
-};
 
 export class Game {
   // mode：'1v1'（两人单挑）| 'identity'（身份局）；roles：身份局按座位排列的身份
@@ -43,7 +34,6 @@ export class Game {
     this.over = false;
     this.winner = null;
     this.turnCount = 0;
-    this.hooks = [];
     this.onUpdate = null; // UI 渲染回调
     this.pendingDiscard = []; // 待进弃牌堆的结算中卡牌（奸雄可捡）
     this.currentTurnSeat = 0; // 当前回合角色座位
@@ -63,44 +53,42 @@ export class Game {
     if (this.onUpdate) this.onUpdate();
   }
 
-  // ---------- 钩子系统 ----------
-  registerHeroHooks() {
-    for (const p of this.players) {
-      for (const skillId of p.hero.skills) {
-        const skill = SKILL_REGISTRY[skillId];
-        if (!skill) continue;
-        for (const hook of skill.hooks) {
-          // 绑定技能持有者
-          this.hooks.push({
-            trigger: hook.trigger,
-            priority: hook.priority ?? 0,
-            canTrigger: hook.canTrigger ? (ctx, g) => hook.canTrigger(ctx, g, p) : null,
-            handler: (ctx, g) => hook.handler(ctx, g, p),
-            skillId,
-            owner: p,
-          });
+  // ---------- 时机 ----------
+  // 广播一个时机：从当前回合角色开始按座位顺序，依次结算每名存活角色的技能与装备在该时机的效果。
+  // 效果定义见 core/registry.js 的 triggers：can 判断是否满足条件；未标 optional:false / locked 的效果
+  // 由引擎先询问「是否发动」；run 通过修改 ctx 影响后续结算（如 ctx.target、ctx.amount、ctx.result）。
+  // 任一效果设置 ctx.stop 后停止广播。
+  async trigger(event, ctx = {}) {
+    if (!EVENTS[event]) throw new Error(`未知时机 ${event}`);
+    for (const owner of this.seatOrder()) {
+      for (const eff of effectsOf(owner)) {
+        if (this.over || ctx.stop) return ctx;
+        if (!owner.alive) break;
+        const t = eff.triggers?.[event];
+        if (!t || (t.can && !t.can(ctx, owner, this))) continue;
+        if (t.optional !== false && !t.locked) {
+          const info = t.info ? t.info(ctx, owner, this) : ctx;
+          if (!await this.ask(owner, 'askSkillInvoke', eff.id, info)) continue;
         }
+        await t.run(ctx, owner, this);
       }
     }
-    this.hooks.sort((a, b) => a.priority - b.priority);
+    return ctx;
   }
 
-  async emit(trigger, ctx) {
-    const results = [];
-    for (const h of this.hooks) {
-      if (h.trigger !== trigger) continue;
-      if (this.over) break;
-      // 阵亡角色的技能不再触发
-      if (h.owner && !h.owner.alive) continue;
-      if (h.canTrigger && !(await h.canTrigger(ctx, this))) continue;
-      const r = await h.handler(ctx, this);
-      if (r) results.push({ ...r, from: h.owner, skillId: h.skillId });
-    }
-    return results;
+  // 询问是否发动（技能在 run 内需要多次询问时使用，如遗计每点伤害、枭姬每张装备）
+  invoke(owner, id, info = {}) {
+    return this.ask(owner, 'askSkillInvoke', id, info);
   }
 
-  blocked(results) {
-    return results.some(r => r.blocked);
+  // 「发动【X】」战报
+  skillLog(owner, id, extra = '') {
+    this.log(`${owner.name} 发动【${skillName(id)}】${extra}`);
+  }
+
+  // 清空所有角色某作用域的技能状态
+  resetScope(scope) {
+    for (const p of this.players) p.resetState(scope);
   }
 
   // ---------- 基础询问（包装，供 UI 刷新） ----------
@@ -246,28 +234,19 @@ export class Game {
     if (player.hp <= 0) await handleDying(this, player, null);
   }
 
-  // 连营 / 枭姬：失去牌后在下一个决策点询问（引擎各处移除牌都经 Player 记录）
+  // 失去牌后的时机（连营、枭姬……）：引擎各处移除牌都经 Player 记录，在下一个决策点统一广播
   async flushLoseTriggers() {
     if (this.flushingLose || this.over) return;
     this.flushingLose = true;
     try {
       for (const p of this.seatOrder()) {
         if (this.over) break;
-        const lastHand = p.lostLastHand;
+        const lastHand = !!p.lostLastHand;
         const equips = p.lostEquip || 0;
         p.lostLastHand = false;
         p.lostEquip = 0;
-        if (!p.alive) continue;
-        if (lastHand && hasSkill(p, 'lianying')
-          && await this.ask(p, 'askSkillInvoke', 'lianying', {})) {
-          this.log(`${p.name} 发动【连营】`);
-          this.drawCards(p, 1);
-        }
-        for (let i = 0; i < equips && hasSkill(p, 'xiaoji') && !this.over; i++) {
-          if (!await this.ask(p, 'askSkillInvoke', 'xiaoji', {})) break;
-          this.log(`${p.name} 发动【枭姬】`);
-          this.drawCards(p, 2);
-        }
+        if (!p.alive || (!lastHand && !equips)) continue;
+        await this.trigger('afterLoseCards', { player: p, lastHand, equips });
       }
     } finally {
       this.flushingLose = false;
@@ -316,7 +295,6 @@ export class Game {
 
   // ---------- 主流程 ----------
   async run() {
-    this.registerHeroHooks();
     let current;
     if (this.mode === '1v1') {
       this.log(`对局开始：${this.players.map(p => p.name).join(' vs ')}`);
@@ -331,7 +309,10 @@ export class Game {
       this.log(`身份局开始：主公 ${current.name}（${current.maxHp} 体力）`);
       for (const p of this.seatOrder(current)) this.drawCards(p, 4);
     }
+    // 每轮从首个行动的角色开始
+    const roundStart = current;
     while (!this.over) {
+      if (current === roundStart || !roundStart.alive && current === this.nextAlive(roundStart)) this.resetScope('round');
       await runTurn(this, current);
       if (this.over) break;
       current = this.nextAlive(current);

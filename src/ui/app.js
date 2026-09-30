@@ -7,15 +7,15 @@ import { makeVirtual } from '../core/card-use.js';
 import { dealRoles, lordCandidates, heroChoices, assignRest, LORD_HEROES } from '../core/identity.js';
 import { shuffle } from '../core/deck.js';
 import {
-  renderGame, renderSetup, renderResult, directUseAction, equipSelectable, targetSpec, usingAs, pickPlayerSpec,
+  renderGame, renderSetup, renderResult, directUseAction, equipSelectable, targetSpec, usingAs, pickPlayerSpec, pairOf,
 } from './render.js';
 import { snapshotFx, playFx, showTargetPreview } from './animate.js';
 
 let ui = null;
 let game = null;
 let logs = [];
-// 选将界面状态：mode = '1v1' | 'identity'；identity = { roles, role, choices, lordHeroId }
-const setup = { mode: '1v1', selectedId: null, identity: null };
+// 选将界面状态：mode = '1v1' | 'identity'；pack / search：武将筛选；identity = { roles, role, choices, lordHeroId }
+const setup = { mode: '1v1', selectedId: null, pack: 'all', search: '', identity: null };
 const HERO_IDS = HERO_LIST.map(h => h.id);
 
 // 身份局：发身份并准备候选武将（人类固定为 0 号座位）。
@@ -116,7 +116,7 @@ function normalizeTargets() {
 function buildAction(pend) {
   const targets = [...(pend.targets || [])];
   const sel = pend.selected;
-  if (pend.skillId === 'zhangba') return { cards: [...sel], card: sel[0], targets };
+  if (pend.skillId && pairOf(game.players[0], pend.skillId)) return { cards: [...sel], card: sel[0], targets };
   if (pend.skillId) return { skillId: pend.skillId, cards: [...sel], targets };
   const victim = pend.victim ? { victim: pend.victim } : {};
   // 转化技：以转化后的牌名使用（引擎会重新校验转化来源）
@@ -183,6 +183,11 @@ function finish(result) {
 // ---------- 事件处理 ----------
 function onBannerAction(action) {
   if (action === 'start-game') { startGame(); return; }
+  if (action.startsWith('pack:')) {
+    setup.pack = action.slice(5);
+    renderSetup(setup);
+    return;
+  }
   if (action.startsWith('mode:')) {
     setup.mode = action.slice(5);
     setup.selectedId = null;
@@ -206,8 +211,8 @@ function onBannerAction(action) {
     finish([action.slice(5)]);
     return;
   }
-  if (action.startsWith('suit:')) {
-    if (pend.mode === 'pick-suit') finish(action.slice(5));
+  if (action.startsWith('option:')) {
+    if (pend.mode === 'pick-option') finish(action.slice(7));
     return;
   }
   if (action.startsWith('use-as:')) { ui.useAs(action.slice(7) || null); render(); return; }
@@ -225,15 +230,14 @@ function onBannerAction(action) {
     case 'end-play': finish(null); break;
     case 'cancel-skill': ui.backToPlay(); render(); break;
     case 'confirm-target': confirmTarget(); break;
-    case 'confirm-zhiheng':
     case 'confirm-skill':
       if (directUseAction(game, pend) === action) finish({ skillId: pend.skillId, cards: [...pend.selected], targets: [] });
       break;
     case 'confirm-players': finish([...(pend.targets || [])]); break;
     case 'confirm-respond': {
       const req = pend.opts.req;
-      if (pend.selected.length === 2) {
-        // 丈八蛇矛：两张手牌当【杀】打出
+      if (pend.selected.length > 1) {
+        // 多张当一张（丈八蛇矛：两张手牌当【杀】打出）
         finish({ cards: [...pend.selected], as: req.type });
         break;
       }
@@ -244,9 +248,8 @@ function onBannerAction(action) {
     }
     case 'confirm-peach': finish(pend.selected[0]); break;
     case 'confirm-nullify': finish(pend.selected[0]); break;
-    case 'confirm-judge-replace': finish(pend.selected[0]); break;
     case 'confirm-pick': finish(pend.selected); break;
-    case 'confirm-guanxing':
+    case 'confirm-arrange':
       // 牌堆顶一行从左到右依次被摸到；牌堆底一行从左到右依次沉底
       finish({ top: [...pend.gx.top], bottom: [...pend.gx.bottom] });
       break;
@@ -289,7 +292,7 @@ function onSelfEquipClick(cardId) {
 // 观星：点击一张牌在「牌堆顶 / 牌堆底」之间切换（放到另一行末尾）
 function onGuanxingClick(cardId) {
   const pend = ui?.pending;
-  if (pend?.mode !== 'guanxing') return;
+  if (pend?.mode !== 'arrange') return;
   const id = Number(cardId);
   const inTop = pend.gx.top.some(c => c.id === id);
   ui.moveGuanxing(id, inTop ? 'bottom' : 'top');
@@ -445,7 +448,7 @@ function endDrag(commit) {
 document.addEventListener('pointerdown', e => {
   if (e.button !== 0 || drag) return;
   const el = e.target.closest('#hand-row [data-card-id]');
-  if (!el || !ui?.pending || ui.pending.mode === 'guanxing') return;
+  if (!el || !ui?.pending || ui.pending.mode === 'arrange') return;
   if (!el.classList.contains('selectable') && !el.classList.contains('selected')) return;
   const r = el.getBoundingClientRect();
   drag = {
@@ -524,7 +527,7 @@ function gxMarkDrop() {
 }
 
 document.addEventListener('pointerdown', e => {
-  if (e.button !== 0 || gxDrag || ui?.pending?.mode !== 'guanxing') return;
+  if (e.button !== 0 || gxDrag || ui?.pending?.mode !== 'arrange') return;
   const el = e.target.closest('#picker .gx-item');
   if (!el) return;
   const r = el.getBoundingClientRect();
@@ -562,7 +565,7 @@ function endGxDrag(commit) {
   document.body.classList.remove('dragging');
   suppressClick = true;
   setTimeout(() => { suppressClick = false; }, 0);
-  if (commit && d.drop && ui?.pending?.mode === 'guanxing') {
+  if (commit && d.drop && ui?.pending?.mode === 'arrange') {
     // gxDropAt 的下标不含被拖的牌本身，moveGuanxing 需要的是移除该牌后的下标，二者一致
     const gx = ui.pending.gx;
     for (const r of ['top', 'bottom']) {
@@ -621,6 +624,17 @@ document.addEventListener('click', e => {
     && (equipCard.classList.contains('selectable') || equipCard.classList.contains('selected'))) {
     onSelfEquipClick(equipCard.dataset.cardId);
   }
+});
+
+// 选将搜索：输入即筛选（重绘后恢复输入框焦点与光标）
+document.addEventListener('input', e => {
+  if (e.target.id !== 'hero-search') return;
+  setup.search = e.target.value;
+  const pos = e.target.selectionStart;
+  renderSetup(setup);
+  const el = document.getElementById('hero-search');
+  el.focus();
+  el.setSelectionRange(pos, pos);
 });
 
 // 启动：显示选将界面

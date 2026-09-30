@@ -39,7 +39,7 @@ async function waitPlay() {
     if (mode) {
       await page.evaluate(() => {
         const b = document.querySelector('#banner');
-        const btn = b.querySelector('[data-action="cancel"],[data-action="no"],[data-action="confirm-guanxing"],[data-action^="zone:"]')
+        const btn = b.querySelector('[data-action="cancel"],[data-action="no"],[data-action="confirm-arrange"],[data-action^="zone:"]')
           || b.querySelector('[data-card-id]');
         if (btn) { btn.click(); return; }
         // 弃牌阶段：选够张数

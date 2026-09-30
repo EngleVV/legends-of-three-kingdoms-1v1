@@ -6,7 +6,8 @@ import { AIController } from '../src/ai/ai-controller.js';
 import { Controller } from '../src/controller.js';
 import { HEROES } from '../src/data/heroes.js';
 import { buildStandardDeck } from '../src/data/cards.js';
-import { makeVirtual, resolveCardUse, resolveSlash } from '../src/core/card-use.js';
+import {makeVirtual, resolveCardUse } from '../src/core/card-use.js';
+import { resolveSlash } from '../src/packs/standard/cards/basic.js';
 import { applyDamage } from '../src/core/damage.js';
 
 function mkGame(h1, h2, c1, c2, logger = () => {}) {
@@ -56,7 +57,6 @@ test('伤害时机：濒死结算先于反馈，反馈拿到的桃不能用于�
       async askPeach(p) { return p.hand.find(c => c.name === 'tao') || null; },
     }),
     new Script());
-  g.registerHeroHooks();
   const [sy, cc] = g.players;
   sy.hp = 1; sy.hand = [];
   cc.hand = [drawOut(g, 'tao')];
@@ -69,7 +69,6 @@ test('奸雄：可获得【南蛮入侵】', async () => {
   const g = mkGame('sunquan', 'caocao',
     new Script(),
     new Script({ async askSkillInvoke(p, id) { return id === 'jianxiong'; } }));
-  g.registerHeroHooks();
   const [sq, cc] = g.players;
   const nm = drawOut(g, 'nanman');
   sq.hand = [nm]; cc.hand = [];
@@ -83,7 +82,6 @@ test('桃园结义：体力满的角色跳过结算（不询问无懈）', async
   let asks = 0;
   const g = mkGame('liubei', 'caocao',
     new Script({ async askNullify() { asks++; return null; } }), new Script());
-  g.registerHeroHooks();
   const [lb, cc] = g.players;
   const ty = drawOut(g, 'taoyuan');
   lb.hand = [ty, drawOut(g, 'wuxie')];
@@ -96,7 +94,6 @@ test('桃园结义：体力满的角色跳过结算（不询问无懈）', async
 // ---------- 防具 ----------
 test('仁王盾：黑色【杀】无效，红色【杀】有效；青釭剑无视仁王盾', async () => {
   const g = mkGame('zhangfei', 'caocao', new Script(), new Script());
-  g.registerHeroHooks();
   const [zf, cc] = g.players;
   cc.equip.armor = drawOut(g, 'renwang');
   cc.hand = [];
@@ -113,7 +110,6 @@ test('青釭剑：无视八卦阵（不询问八卦阵）', async () => {
   let asked = 0;
   const g = mkGame('zhangfei', 'caocao', new Script(),
     new Script({ async askSkillInvoke(p, id) { if (id === 'bagua') asked++; return true; } }));
-  g.registerHeroHooks();
   const [zf, cc] = g.players;
   zf.equip.weapon = drawOut(g, 'qinggang');
   cc.equip.armor = drawOut(g, 'bagua');
@@ -129,7 +125,6 @@ test('寒冰剑：防止伤害，改为弃置对方两张牌', async () => {
     new Script({ async askSkillInvoke(p, id) { return id === 'hanbing'; },
       async askChooseCards() { return ['hand']; } }),
     new Script());
-  g.registerHeroHooks();
   const [zf, sq] = g.players;
   zf.equip.weapon = drawOut(g, 'hanbing');
   sq.hand = [drawOut(g, 'tao'), drawOut(g, 'wuzhong')];
@@ -140,7 +135,6 @@ test('寒冰剑：防止伤害，改为弃置对方两张牌', async () => {
 
 test('青龙偃月刀：被闪后可连续追杀', async () => {
   const g = mkGame('zhangfei', 'sunquan', new AIController(), new AIController());
-  g.registerHeroHooks();
   const [zf, sq] = g.players;
   zf.equip.weapon = drawOut(g, 'qinglong');
   zf.hand = [drawOut(g, 'sha'), drawOut(g, 'sha')];
@@ -156,7 +150,6 @@ test('贯石斧：可弃置装备区的牌强制命中，但不能弃置贯石�
   const g = mkGame('zhangfei', 'sunquan',
     new Script({ async askChooseCards(p, o) { return o.reason === 'guanshi' ? pick : null; } }),
     new AIController());
-  g.registerHeroHooks();
   const [zf, sq] = g.players;
   const axe = drawOut(g, 'guanshi');
   const horse = drawOut(g, 'ma-1');
@@ -177,7 +170,6 @@ test('贯石斧：可弃置装备区的牌强制命中，但不能弃置贯石�
 // ---------- 武圣 ----------
 test('武圣：装备区的红色牌可当【杀】使用，按失去该装备后的距离判定', async () => {
   const g = mkGame('guanyu', 'sunquan', new Script(), new Script());
-  g.registerHeroHooks();
   const [gy, sq] = g.players;
   const redHorse = drawOutBy(g, c => c.name === 'ma-1' && red(c));
   gy.equip['horse-'] = redHorse; gy.hand = []; gy.flags = { shaUsed: 0 };
@@ -196,7 +188,6 @@ test('武圣：装备区的红色牌可当【杀】使用，按失去该装备�
 // ---------- 目标指示线 ----------
 test('指示线：指定目标的牌/群体锦囊/借刀的杀都会记录，无目标的牌不记录', async () => {
   const g = mkGame('zhangfei', 'sunquan', new Script(), new AIController());
-  g.registerHeroHooks();
   const [zf, sq] = g.players;
   zf.flags = { shaUsed: 0 };
   sq.hand = [];

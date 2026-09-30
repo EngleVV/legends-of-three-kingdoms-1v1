@@ -12,8 +12,9 @@ const server = createServer(async (req, res) => {
   try {
     const rel = normalize(decodeURIComponent(req.url.split('?')[0])).replace(/^(\.\.[/\\])+/, '');
     const file = join(ROOT, rel === '/' || rel === '\\' ? 'index.html' : rel);
+    const body = await readFile(file);
     res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream' });
-    res.end(await readFile(file));
+    res.end(body);
   } catch { res.writeHead(404); res.end('not found'); }
 });
 await new Promise(r => server.listen(0, r));
@@ -36,7 +37,7 @@ for (let i = 0; i < 900; i++) {
     const ui = window.__ui?.(); const p = ui?.pending;
     if (!p) return window.__sg?.()?.over ? 'over' : null;
     if (p.mode === 'play') return 'play';
-    const b = document.querySelector('[data-action="cancel"],[data-action="no"],[data-action="confirm-guanxing"],[data-action^="zone:"],[data-action^="wugu:"]');
+    const b = document.querySelector('[data-action="cancel"],[data-action="no"],[data-action="confirm-arrange"],[data-action^="zone:"],[data-action^="wugu:"]');
     if (b) b.click();
     else if (p.mode === 'pick-hand') ui._finish(window.__sg().players[0].hand.slice(0, p.opts.opts.count));
     return p.mode;

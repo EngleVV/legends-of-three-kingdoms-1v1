@@ -33,8 +33,8 @@ async function ensurePlay() {
       return true;
     }
     const pick = btn('confirm-pick');
-    const any = btn('cancel') || btn('no') || btn('confirm-guanxing')
-      || $$('#picker [data-action]').find(b => /^(zone|wugu|suit):/.test(b.dataset.action));
+    const any = btn('cancel') || btn('no') || btn('confirm-arrange')
+      || $$('#picker [data-action]').find(b => /^(zone|wugu|option):/.test(b.dataset.action));
     if (pick && !pick.disabled) click(pick);
     else if (pick) click($('#hand-row .card.selectable:not(.selected)'));
     else if (btn('confirm-players') && !btn('confirm-players').disabled) click(btn('confirm-players'));
@@ -69,7 +69,8 @@ function reset() {
   for (const k of Object.keys(me.equip)) me.equip[k] = null;
   for (const k of Object.keys(opp.equip)) opp.equip[k] = null;
   me.judgeZone = []; opp.judgeZone = [];
-  me.flags = { shaUsed: 0, used: {}, rendeGiven: 0 };
+  me.flags = { shaUsed: 0 };
+  me.resetState('phase'); me.resetState('turn');
   me.hp = me.maxHp = 4;
   if (!opp.hand.length) opp.hand.push(grab('shan'));
 }
@@ -154,11 +155,13 @@ console.log('\n== 6) 选角色（突袭）：点选武将 → 确定；可不发
 
 console.log('\n== 7) 选花色（反间）：面板四种花色 ==');
 {
-  const done = me.controller.askChooseSuit(me, { source: opp });
+  const options = [['♠', '黑桃'], ['♥', '红桃'], ['♣', '梅花'], ['♦', '方片']].map(([id, label]) => ({ id, label }));
+  const done = me.controller.askChooseOption(me, { reason: 'fanjian', options, info: { source: opp } });
   await sleep(10);
-  const suits = $$('#picker [data-action^="suit:"]');
+  const suits = $$('#picker [data-action^="option:"]');
   check(suits.length === 4, '选牌面板显示四种花色');
-  click(suits.find(b => b.dataset.action === 'suit:♥'));
+  check($('#picker').textContent.includes('发动了【反间】'), '面板写明是反间');
+  click(suits.find(b => b.dataset.action === 'option:♥'));
   check(await done === '♥', '返回所选花色');
 }
 

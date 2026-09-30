@@ -1,7 +1,7 @@
 import { Controller } from '../controller.js';
 import {
   choosePlay, chooseRespond, choosePeach, chooseNullify,
-  chooseCards, chooseJudgeReplace, chooseGuanxing, chooseInvoke, choosePlayers, chooseSuit,
+  chooseCards, chooseInvoke, choosePlayers, chooseOption, chooseArrange,
 } from './strategy.js';
 
 export class AIController extends Controller {
@@ -44,23 +44,18 @@ export class AIController extends Controller {
     return chooseCards(this.game, player, opts);
   }
 
-  async askChooseJudgeReplace(player, info) {
-    await this.wait();
-    return chooseJudgeReplace(this.game, player, info);
-  }
-
   async askChoosePlayers(player, opts) {
     await this.wait();
     return choosePlayers(this.game, player, opts);
   }
 
-  async askChooseSuit(player, info) {
+  async askChooseOption(player, opts) {
     await this.wait();
-    return chooseSuit(this.game, player, info);
+    return chooseOption(this.game, player, opts);
   }
 
-  async askGuanxing(player, cards) {
+  async askArrange(player, opts) {
     await this.wait();
-    return chooseGuanxing(this.game, player, cards);
+    return chooseArrange(this.game, player, opts);
   }
 }

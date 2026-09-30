@@ -4,7 +4,12 @@ import { useLabel } from './util.js';
 
 // skill：没有伤害牌、由技能造成的伤害（刚烈/反间），战报写明技能名
 export async function applyDamage(game, source, target, amount, card = null, nature = 'normal', skill = null) {
-  if (game.over || amount <= 0) return;
+  if (game.over || amount <= 0 || !target.alive) return;
+  // 造成伤害时：可改变伤害值（裸衣）或防止伤害（寒冰剑）；麒麟弓等在此时弃置目标的牌
+  const pre = await game.trigger('beforeDamage', { source, target, amount, card, nature, prevented: false });
+  if (pre.prevented || game.over || !target.alive) return;
+  amount = pre.amount;
+  if (amount <= 0) return;
   target.hp -= amount;
   const src = source ? `${source.name} 造成的 ` : '';
   game.log(`${target.name} 受到 ${src}${amount} 点${nature === 'thunder' ? '雷电' : ''}伤害（${card ? useLabel(card) : skill ? `【${skill}】` : '无来源牌'}），剩 ${target.hp} 血`);
@@ -12,5 +17,5 @@ export async function applyDamage(game, source, target, amount, card = null, nat
   // 因此反馈/奸雄获得的牌不能用于本次濒死自救；阵亡则不再触发。
   if (target.hp <= 0) await handleDying(game, target, source);
   if (game.over || !target.alive) return;
-  await game.emit('damaged', { source, target, amount, card, nature });
+  await game.trigger('damaged', { source, target, amount, card, nature });
 }

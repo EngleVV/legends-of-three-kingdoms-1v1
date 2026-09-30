@@ -5,7 +5,7 @@ import { UIController } from '../src/ui/ui-controller.js';
 import { HEROES, HERO_LIST } from '../src/data/heroes.js';
 import {
   choosePlay, chooseRespond, choosePeach, chooseNullify,
-  chooseCards, chooseJudgeReplace, chooseGuanxing,
+  chooseCards, choosePlayers, chooseOption, chooseArrange,
 } from '../src/ai/strategy.js';
 
 class AutoUI extends UIController {
@@ -29,8 +29,9 @@ class AutoUI extends UIController {
         case 'invoke': return this._finish(true);
         case 'pick-hand': case 'pick-zone': case 'pick-wugu':
           return this._finish(chooseCards(g, me, pend.opts.opts));
-        case 'judge-replace': return this._finish(chooseJudgeReplace(g, me, pend.opts.info));
-        case 'guanxing': return this._finish(chooseGuanxing(g, me, pend.opts.cards));
+        case 'pick-player': return this._finish(choosePlayers(g, me, pend.opts.opts));
+        case 'pick-option': return this._finish(chooseOption(g, me, pend.opts.opts));
+        case 'arrange': return this._finish(chooseArrange(g, me, pend.opts));
         default: return this._finish(null);
       }
     } catch (e) {

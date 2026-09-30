@@ -2,6 +2,9 @@
 // 1v1 也走这里的 killPlayer / checkWinner，只是规则分支不同。
 import { shuffle } from './deck.js';
 import { cardLabel } from '../data/cards.js';
+import { LORD_HEROES } from './registry.js';
+
+export { LORD_HEROES };
 
 export const ROLE_NAME = { lord: '主公', loyalist: '忠臣', rebel: '反贼', renegade: '内奸' };
 export const SIDE_NAME = { lord: '主公与忠臣', rebel: '反贼', renegade: '内奸' };
@@ -22,9 +25,8 @@ export function dealRoles(n) {
   return shuffle(rolesFor(n));
 }
 
-// 选将候选（官方）：主公从「曹操、刘备、孙权 + 随机 2 名」中选；其余角色各随机 3 名，武将不重复。
+// 选将候选（官方）：主公从「带主公技的武将（曹操、刘备、孙权）+ 随机 2 名」中选；其余角色各随机 3 名，武将不重复。
 // 武将不够分时优先保证人类玩家拿满 choiceN 名，AI 从剩余里随机分配。
-export const LORD_HEROES = ['caocao', 'liubei', 'sunquan'];
 
 export function lordCandidates(heroIds, extra = 2) {
   const rest = shuffle(heroIds.filter(id => !LORD_HEROES.includes(id)));

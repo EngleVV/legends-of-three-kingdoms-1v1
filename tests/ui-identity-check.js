@@ -33,7 +33,7 @@ async function ensurePlay() {
       return true;
     }
     const pick = btn('confirm-pick');
-    const any = btn('cancel') || btn('no') || btn('confirm-guanxing')
+    const any = btn('cancel') || btn('no') || btn('confirm-arrange')
       || $$('#picker [data-action]').find(b => /^(zone|wugu):/.test(b.dataset.action));
     if (pick && !pick.disabled) click(pick);
     else if (pick) { const c = $('#hand-row .card.selectable:not(.selected)'); if (c) click(c); }
@@ -165,7 +165,7 @@ normalize();
 {
   const { HEROES } = await import('../src/data/heroes.js');
   me.hero = { ...HEROES.diaochan };
-  me.flags.used = {};
+  me.resetState('phase');
   // 让其余角色都是男性且有手牌（避免空城）
   const males = ['zhangfei', 'caocao', 'lvbu', 'sunquan'];
   g.others(me).forEach((p, i) => { p.hero = { ...HEROES[males[i]] }; p.name = HEROES[males[i]].name; });

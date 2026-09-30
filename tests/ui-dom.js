@@ -90,7 +90,7 @@ async function playUntilOver(heroId) {
     if (!acted && seatEl) { click(seatEl); acted = true; }
     // 确认类：先选牌再确认
     if (!acted) {
-      const name = ['confirm-respond', 'confirm-peach', 'confirm-nullify', 'confirm-judge-replace', 'confirm-pick', 'confirm-players', 'confirm-skill']
+      const name = ['confirm-respond', 'confirm-peach', 'confirm-nullify', 'confirm-pick', 'confirm-players', 'confirm-skill']
         .find(hasAction);
       if (name) {
         const btn = findAction(name);
@@ -103,19 +103,19 @@ async function playUntilOver(heroId) {
         else if (name === 'confirm-pick' && hasAction('cancel')) { click(findAction('cancel')); acted = true; }
       }
     }
-    if (!acted && hasAction('confirm-guanxing')) {
+    if (!acted && hasAction('confirm-arrange')) {
       // 先把第一张切到牌堆底，覆盖点击切换逻辑，再确定
       if (bannerCards.length && !$('#picker [data-gx-row="bottom"] .gx-item')) click(bannerCards[0]);
-      else click(findAction('confirm-guanxing'));
+      else click(findAction('confirm-arrange'));
       acted = true;
     }
     if (!acted) {
-      const zoneBtn = actions.find(b => /^(zone|wugu|suit):/.test(b.dataset.action));
+      const zoneBtn = actions.find(b => /^(zone|wugu|option):/.test(b.dataset.action));
       if (zoneBtn) { click(zoneBtn); acted = true; }
     }
     if (!acted && hasAction('confirm-play')) { click(findAction('confirm-play')); acted = true; }
-    if (!acted && hasAction('confirm-zhiheng') && !findAction('confirm-zhiheng').disabled) {
-      click(findAction('confirm-zhiheng')); acted = true;
+    if (!acted && hasAction('confirm-skill') && !findAction('confirm-skill').disabled) {
+      click(findAction('confirm-skill')); acted = true;
     }
     if (!acted && handUnselected.length) { click(handUnselected[0]); acted = true; }
     if (!acted && bannerCards.length) { click(bannerCards[0]); acted = true; }

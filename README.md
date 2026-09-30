@@ -53,10 +53,7 @@ npm start          # Electron 启动对局
 | 吴 | 孙权（制衡、主公技救援）、甘宁（奇袭）、吕蒙（克己）、黄盖（苦肉）、周瑜（英姿、反间）、大乔（国色、流离）、陆逊（谦逊、连营）、孙尚香（结姻、枭姬） |
 | 群 | 华佗（急救、青囊）、吕布（无双）、貂蝉（离间、闭月） |
 
-选将界面按势力分行，悬停技能名或点选武将可查看技能描述。技能实现方式：
-- **转化技**（武圣、龙胆、倾国、奇袭、国色、急救）统一登记在 `data/cards.js` 的 `CONVERSIONS` 表，引擎校验、界面可选牌、AI 都查这张表；选中牌后出现「当【X】使用」按钮
-- **主动技能**（仁德、制衡、激将、苦肉、反间、结姻、青囊、离间）统一登记在 `data/active-skills.js`，由引擎按表校验牌数、区域与目标
-- **阶段技能**（洛神、突袭、裸衣、英姿、克己、闭月）在 `data/skills/phase.js`；受伤技能（刚烈、遗计）走钩子；连营/枭姬在失去牌后的下一个决策点结算
+选将界面按势力分行，可按扩展包筛选、按武将名或技能名搜索，悬停技能名或点选武将可查看技能描述。每个技能一个文件（`src/packs/standard/skills/`），规则、AI 决策、界面文案写在同一个定义里，扩展方法见 [扩展包与武将扩展指南](src/packs/README.md)。
 
 **牌堆（108 张）**：官方标准版 104 张 + EX 4 张（寒冰剑、仁王盾、♥Q【闪电】、♦Q【无懈可击】），四种花色各 27 张。
 
@@ -79,38 +76,42 @@ npm start          # Electron 启动对局
 
 ```
 src/
-├── controller.js        # Controller 接口：引擎向玩家提问的契约
-├── player.js
-├── core/                # 引擎（不依赖 DOM）
-│   ├── game.js          # 对局状态、钩子系统、座位顺序、公开行为记录
+├── controller.js        # Controller 接口：引擎向玩家提问的契约（通用询问：选牌/选角色/选择一项/排列）
+├── player.js            # 角色状态，含按作用域清空的技能状态 st(scope, id)
+├── core/                # 引擎（不依赖 DOM，不含任何具体技能名）
+│   ├── registry.js      # 注册表：技能/卡牌/武将/扩展包登记，时机与修正点汇总
+│   ├── game.js          # 对局状态、时机广播 trigger、座位顺序、公开行为记录
 │   ├── identity.js      # 身份局：发身份、选将、阵亡奖惩、胜负
 │   ├── turn.js          # 回合与阶段流程
-│   ├── card-use.js      # 出牌/响应结算、虚拟牌
+│   ├── card-use.js      # 通用用牌/响应/主动技能流程、虚拟牌
 │   ├── nullify-chain.js # 无懈可击响应链
 │   ├── judge.js damage.js dying.js deck.js util.js
 ├── data/
-│   ├── cards.js         # 牌堆数据 + 全部规则判据（单一来源，含转化技表）
-│   ├── active-skills.js # 主动技能表（引擎/界面/AI 共用）
-│   ├── heroes.js        # 25 名武将 + 技能名与描述
-│   └── skills/          # 需要询问玩家的技能钩子
-├── ai/                  # 启发式 AI（纯函数策略；perception.js 负责身份推断）
+│   ├── cards.js         # 全部规则判据（单一来源，读取注册表）
+│   └── heroes.js        # 武将目录入口（转出注册表）
+├── packs/               # 扩展包：武将、技能、卡牌、牌堆（新增武将只改这里）
+│   ├── index.js         # 扩展包登记
+│   └── standard/        # 标准包：heroes / deck / cards/ / skills/（一技能一文件）
+├── ai/                  # AI 调度（strategy.js）+ 共用工具（util.js）+ 身份推断（perception.js）
 └── ui/                  # 渲染与事件（唯一接触 DOM 的层）
 ```
 
 ### 设计要点
 
-**规则判据只有一份**。能否使用、目标是否合法、【杀】的次数上限、转化途径等全部集中在 `data/cards.js`（`canUseInPlayPhase` / `canTarget` / `shaLimitOf` / `canUseCardAs`），由引擎在结算入口强制执行，UI 的可点牌判断与 AI 的决策筛选都调用同一函数。
+**规则判据只有一份**。能否使用、目标是否合法、【杀】的次数上限、转化途径等全部集中在 `data/cards.js`（`canUseInPlayPhase` / `canTarget` / `shaLimitOf` / `canUseCardAs`），由引擎在结算入口强制执行，UI 的可点牌判断与 AI 的决策筛选都调用同一函数。这些判据本身不写具体技能，而是汇总注册表里各技能与装备的修正（如马术的 `distanceFrom`、空城的 `targetable`、咆哮的 `shaLimit`）。
 
 这条约束是踩坑换来的：早期出牌合法性只写在 UI 里、引擎不校验、AI 又写第三份，结果【闪】能被主动使用、【杀】的每回合限制无人强制、任意牌都能冒充【无懈可击】。
 
 **引擎不信任输入**。所有玩家决策都经过校验：牌必须真在手里、牌名必须相符或存在合法转化途径、目标必须合法。非法输入一律拒绝并记日志，而非崩溃或静默生效。
 
-**锁定技用同步判据，钩子只留给需要询问的时机**。咆哮/武圣/无双通过 `hasSkill` 同步判断（这样 UI 的同步渲染也能复用同一规则）；奸雄/反馈/鬼才/观星/空城才注册异步钩子。
+**技能即数据，引擎只提供时机与修正点**。锁定技写成同步的修正（`modifiers`），界面的同步渲染也能复用；需要结算或询问的技能挂在时机上（`triggers`：受到伤害后、判定生效前、成为【杀】的目标时……），由引擎统一广播并询问是否发动；主动技声明牌数、目标与次数（`active`），引擎按声明校验。装备牌与技能用同一套字段，装备在装备区时同样参与结算。
+
+**AI 与文案跟着技能走**。每次询问都带 `reason`（发起询问的技能/卡牌 id），AI 读取该定义的 `ai`，界面读取其 `prompt`，因此 `ai/strategy.js` 与 `ui/render.js` 里没有按技能名分支。`tests/registry.test.js` 检查每个需要询问的技能都有 AI 决策，并跑 AI 对局确认没有缺失的决策函数。
 
 ## 测试
 
 ```bash
-npm test           # 121 项单元测试（引擎 + 25 将技能 + 装备 + 官方规则 + 身份局 + 提示栏文案）
+npm test           # 127 项单元测试（引擎 + 25 将技能 + 装备 + 官方规则 + 身份局 + 提示栏文案 + 注册表完整性）
 npm run test:rules # 出牌规则与 UI 交互断言（jsdom，含身份局选目标、新武将技能交互）
 npm run test:play  # 自动对局：jsdom 加载真实 UI 自动点击打完 16 局 1v1
 npm run test:play5 # 同上，8 局 5 人身份局
@@ -122,6 +123,7 @@ npm run shot       # 截图当前界面，用于人工核对布局
 | 文件 | 作用 |
 | --- | --- |
 | `engine.test.js` `skills.test.js` `heroes.test.js` `official-rules.test.js` `identity.test.js` `ui-prompt.test.js` `ai-regression.test.js` | 确定性单元测试 |
+| `registry.test.js` | 注册表完整性：技能都已登记、时机名合法、需要询问的技能都有 AI、AI 对局牌数守恒 |
 | `ui-skills-check.js` | 新武将交互：转化按钮、主动技能、选角色、选花色、急救、选将界面 |
 | `ui-identity-check.js` | 身份局 UI：身份徽章、合法目标高亮、确定时机、借刀两步、仁德选人 |
 | `shot-identity.js` | 身份局截图（选将 / 出牌 / 选目标 / 借刀 / 阵亡 / 结算） |

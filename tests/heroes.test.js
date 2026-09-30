@@ -7,7 +7,8 @@ import { Controller } from '../src/controller.js';
 import { AIController } from '../src/ai/ai-controller.js';
 import { HEROES, HERO_LIST, SKILL_INFO } from '../src/data/heroes.js';
 import { distance, canTarget, canUseInPlayPhase, legalTargets } from '../src/data/cards.js';
-import { makeVirtual, resolveCardUse, resolveSlash, useSkill } from '../src/core/card-use.js';
+import {makeVirtual, resolveCardUse, useSkill } from '../src/core/card-use.js';
+import { resolveSlash } from '../src/packs/standard/cards/basic.js';
 import { applyDamage } from '../src/core/damage.js';
 import { handleDying } from '../src/core/dying.js';
 import { runTurn } from '../src/core/turn.js';
@@ -17,7 +18,6 @@ class S extends Controller { constructor(o = {}) { super(); Object.assign(this, 
 const yes = () => new S({ async askSkillInvoke() { return true; } });
 function mk(ids, ctrls) {
   const g = new Game({ heroes: ids.map(id => HEROES[id]), controllers: ctrls || ids.map(() => new S()) });
-  g.registerHeroHooks();
   return g;
 }
 // 从牌堆取出一张牌（移出牌堆，保证守恒）
@@ -76,7 +76,6 @@ test('突袭：放弃摸牌，获得至多两名其他角色的各一张手牌',
   const g = new Game({ heroes: ['zhangliao', 'zhangfei', 'caocao', 'liubei', 'sunquan'].map(i => HEROES[i]),
     controllers: [new S({ async askChoosePlayers(p, o) { return o.candidates.slice(0, 2); } }), ...[1, 2, 3, 4].map(() => new S())],
     mode: 'identity', roles: ['rebel', 'lord', 'loyalist', 'rebel', 'renegade'] });
-  g.registerHeroHooks();
   const [zl, a, b] = g.players;
   a.hand = [take(g, 'shan')]; b.hand = [take(g, 'tao')];
   zl.hand = [];
@@ -99,7 +98,7 @@ test('裸衣：少摸一张，本回合杀的伤害 +1；回合结束后失效',
   const before = xc.hand.length;
   await runTurn(g, xc);
   assert.strictEqual(lb.hp, 2, '杀造成 2 点伤害');
-  assert.strictEqual(xc.flags.luoyi, false, '回合结束后失效');
+  assert.ok(!xc.st('turn', 'luoyi').on, '回合结束后失效');
   assert.ok(before + 1 - 1 >= 0);
 });
 
@@ -133,12 +132,10 @@ test('倾国：黑色手牌当【闪】；红色牌不行', async () => {
 test('洛神：黑色则获得并可继续，直到红色', async () => {
   const logs = [];
   const g = new Game({ heroes: [HEROES.zhenji, HEROES.zhangfei], controllers: [yes(), new S()], logger: m => logs.push(m) });
-  g.registerHeroHooks();
   const [zj] = g.players;
   zj.hand = [];
   top(g, red); top(g, black); top(g, black);
-  const { luoshen } = await import('../src/data/skills/phase.js');
-  await luoshen(g, zj);
+  await g.trigger('phaseStart', { player: zj, phase: 'prepare' });
   assert.strictEqual(zj.hand.length, 2, '两张黑色判定牌被获得，红色停止');
   assert.strictEqual(logs.filter(m => m.includes('发动【洛神】')).length, 3);
   assert.deepStrictEqual(total(g), [108, 108]);
@@ -179,7 +176,6 @@ test('马术：计算与其他角色的距离 -1；铁骑：判定红色目标�
 test('集智：使用非延时锦囊（含无懈可击）摸一张；奇才：顺手牵羊无距离限制', async () => {
   const g = new Game({ heroes: ['huangyueying', 'zhangfei', 'caocao', 'liubei', 'sunquan'].map(i => HEROES[i]),
     controllers: [yes(), ...[1, 2, 3, 4].map(() => new S())], mode: 'identity', roles: ['rebel', 'lord', 'loyalist', 'rebel', 'renegade'] });
-  g.registerHeroHooks();
   const [hy, , far] = g.players;
   far.hand = [take(g, 'shan')];
   assert.strictEqual(distance(hy, far, g), 2);
@@ -246,7 +242,7 @@ test('英姿：摸牌阶段多摸一张', async () => {
 });
 
 test('反间：对方选花色并获得一张手牌，花色不同则受到 1 点伤害；出牌阶段限一次', async () => {
-  const g = mk(['zhouyu', 'zhangfei'], [new S(), new S({ async askChooseSuit() { return '♥'; } })]);
+  const g = mk(['zhouyu', 'zhangfei'], [new S(), new S({ async askChooseOption() { return '♥'; } })]);
   const [zy, zf] = g.players;
   zy.flags = { used: {} };
   zy.hand = [take(g, c => c.suit === '♠')];
@@ -281,7 +277,6 @@ test('流离：弃一张牌把【杀】转移给攻击范围内的另一名角�
       async askChoosePlayers(p, o) { return [o.candidates[0]]; },
       async askChooseCards(p) { return [p.hand[0]]; },
     }), ...[1, 2, 3, 4].map(() => new S())], mode: 'identity', roles: ['rebel', 'lord', 'loyalist', 'rebel', 'renegade'] });
-  g.registerHeroHooks();
   const [dq, zf, , , sq] = g.players;
   dq.hand = [take(g, 'wuzhong')]; sq.hand = [];
   await resolveSlash(g, zf, dq, sha(g));
@@ -358,7 +353,6 @@ test('离间：视为后选的男性角色对先选的使用【决斗】（不�
   const g = new Game({ heroes: ['diaochan', 'zhangfei', 'caocao', 'liubei', 'sunquan'].map(i => HEROES[i]),
     controllers: [yes(), ...[1, 2, 3, 4].map(() => new S({ async askNullify(p) { return p.hand.find(c => c.name === 'wuxie'); } }))],
     mode: 'identity', roles: ['rebel', 'lord', 'loyalist', 'rebel', 'renegade'] });
-  g.registerHeroHooks();
   const [dc, zf, cc] = g.players;
   dc.flags = { used: {} };
   const d = take(g, 'shan');

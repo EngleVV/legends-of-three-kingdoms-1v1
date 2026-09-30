@@ -1,6 +1,7 @@
 // UIController：把引擎的每次询问转为页面上的选择会话（Promise）
 import { Controller } from '../controller.js';
-import { ACTIVE_SKILLS } from '../data/active-skills.js';
+import { pairViewAs } from '../data/cards.js';
+import { getSkill } from '../core/registry.js';
 
 export class UIController extends Controller {
   constructor() {
@@ -12,8 +13,8 @@ export class UIController extends Controller {
     return new Promise(resolve => {
       // targets/victim：出牌阶段选中的目标（借刀杀人的 victim 为其【杀】的目标）
       this.pending = { mode, opts, resolve, selected: [], skillId: null, asName: null, targets: [], victim: null };
-      // 观星：官方初始把所有牌放在「牌堆顶」一行，玩家再调整顺序或拖到「牌堆底」
-      if (mode === 'guanxing') this.pending.gx = { top: [...opts.cards], bottom: [] };
+      // 排列牌（观星）：官方初始把所有牌放在「牌堆顶」一行，玩家再调整顺序或拖到「牌堆底」
+      if (mode === 'arrange') this.pending.gx = { top: [...opts.cards], bottom: [] };
       // pending 就绪后必须重绘，否则横幅/可点牌停留在旧状态，玩家会看到"卡死"
       this.game?.notify();
     });
@@ -35,21 +36,23 @@ export class UIController extends Controller {
     if (opts.from === 'wugu') return this._begin('pick-wugu', { opts });
     return this._begin('pick-hand', { opts });
   }
-  askChooseJudgeReplace(p, info) { return this._begin('judge-replace', { info }); }
   // 选择角色（突袭/遗计/流离）：点击武将选中，pend.targets 为已选
   askChoosePlayers(p, opts) { return this._begin('pick-player', { opts }); }
-  // 选择花色（反间）
-  askChooseSuit(p, info) { return this._begin('pick-suit', { info }); }
-  askGuanxing(p, cards) { return this._begin('guanxing', { cards }); }
+  // 选择一项（反间选花色）
+  askChooseOption(p, opts) { return this._begin('pick-option', { opts }); }
+  // 排列牌（观星）
+  askArrange(p, opts) { return this._begin('arrange', opts); }
 
   // ---- 供 app.js 事件处理调用 ----
   toggleCard(card) {
     const pend = this.pending;
     if (!pend) return;
     const i = pend.selected.findIndex(c => c.id === card.id);
+    const me = this.game?.players[0];
     if (pend.mode === 'play' && pend.skillId) {
-      // 主动技能按技能表的张数上限多选（丈八蛇矛两张），再点一次取消
-      const max = pend.skillId === 'zhangba' ? 2 : (ACTIVE_SKILLS[pend.skillId]?.cards.max ?? Infinity);
+      // 主动技能按技能定义的张数上限多选（多张当一张按其张数），再点一次取消
+      const a = getSkill(pend.skillId)?.active;
+      const max = a ? (a.cards?.max ?? 0) : (pairViewAs(me, 'sha')?.count ?? 0);
       if (i >= 0) pend.selected.splice(i, 1);
       else if (pend.selected.length < max) pend.selected.push(card);
     } else if (pend.mode === 'play') {
@@ -58,21 +61,21 @@ export class UIController extends Controller {
       pend.selected = [card];
       pend.asName = null;
     } else if (pend.mode === 'respond') {
-      // 响应【杀】时，装备丈八蛇矛可选两张手牌当【杀】打出（其余情况单选）
-      const me = this.game?.players[0];
-      const zhangba = me?.equip.weapon?.name === 'zhangba';
+      // 可多张当一张（丈八蛇矛）时，可选多张手牌组成所需牌打出（其余情况单选）
+      const type = pend.opts.req.type;
+      const pv = pairViewAs(me, type);
       if (i >= 0) { pend.selected.splice(i, 1); pend.asName = null; return; }
       const inHand = c => me.hand.some(h => h.id === c.id);
-      if (zhangba && pend.selected.length === 1 && inHand(pend.selected[0]) && inHand(card)
-        && pend.selected[0].name !== 'sha' && card.name !== 'sha') {
-        // 已选 1 张非杀牌，再选 1 张非杀牌 → 组成合成【杀】
+      if (pv && pend.selected.length && pend.selected.length < pv.count && pend.selected.every(inHand) && inHand(card)
+        && pend.selected.every(c => c.name !== type) && card.name !== type) {
+        // 已选非所需牌，再选非所需牌 → 组成合成牌
         pend.selected.push(card);
         pend.asName = null;
         return;
       }
       pend.selected = [card];
       pend.asName = null;
-    } else if (pend.mode === 'peach' || pend.mode === 'nullify' || pend.mode === 'judge-replace') {
+    } else if (pend.mode === 'peach' || pend.mode === 'nullify') {
       // 单选
       pend.selected = i >= 0 ? [] : [card];
     } else {
@@ -93,7 +96,7 @@ export class UIController extends Controller {
     }
   }
 
-  // 观星：把一张牌移到 row（'top'|'bottom'）的第 index 位；index 省略则放到末尾
+  // 排列牌：把一张牌移到 row（'top'|'bottom'）的第 index 位；index 省略则放到末尾
   moveGuanxing(cardId, row, index = Infinity) {
     const gx = this.pending?.gx;
     if (!gx) return;
