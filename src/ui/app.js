@@ -5,7 +5,9 @@ import { AIController } from '../ai/ai-controller.js';
 import { HEROES, HERO_LIST } from '../data/heroes.js';
 import { canUseInPlayPhase, canUseAsSha } from '../data/cards.js';
 import { makeVirtual } from '../core/card-use.js';
-import { renderGame, renderSetup, renderResult, isOppTargetable, directUseAction } from './render.js';
+import {
+  renderGame, renderSetup, renderResult, isOppTargetable, directUseAction, equipSelectable,
+} from './render.js';
 import { snapshotFx, playFx } from './animate.js';
 
 let ui = null;
@@ -124,6 +126,7 @@ function onBannerAction(action) {
     case 'cancel-skill': ui.backToPlay(); render(); break;
     case 'skill-zhiheng': ui.startSkill('zhiheng'); render(); break;
     case 'skill-rende': ui.startSkill('rende'); render(); break;
+    case 'skill-zhangba': ui.startSkill('zhangba'); render(); break;
     case 'confirm-zhiheng': finish({ skillId: 'zhiheng', cards: pend.selected, targets: [] }); break;
     case 'confirm-respond': {
       const req = pend.opts.req;
@@ -161,16 +164,22 @@ function onHandCardClick(cardId) {
   render();
 }
 
-// 自己装备区的牌：仅在制衡（可弃置任意张牌）时可点选
+// 自己装备区的牌：制衡（弃置任意张）、贯石斧（弃两张）、武圣（红色装备当【杀】）时可点选
 function onSelfEquipClick(cardId) {
   const pend = ui?.pending;
   if (!pend || !game) return;
-  if (pend.mode !== 'play' || pend.skillId !== 'zhiheng') return;
-  const card = Object.values(game.players[0].equip).find(c => c && c.id === Number(cardId));
+  const me = game.players[0];
+  const card = Object.values(me.equip).find(c => c && c.id === Number(cardId));
   if (!card) return;
-  const i = pend.selected.findIndex(c => c.id === card.id);
-  if (i >= 0) pend.selected.splice(i, 1);
-  else pend.selected.push(card);
+  const selected = pend.selected.some(c => c.id === card.id);
+  if (!selected && !equipSelectable(game, me, pend, card)) return;
+  if ((pend.mode === 'play' && !pend.skillId) || pend.mode === 'respond') {
+    // 武圣：装备区的牌只能当【杀】，单选
+    pend.selected = selected ? [] : [card];
+    pend.asSha = !selected && pend.mode === 'play';
+  } else {
+    ui.toggleCard(card);
+  }
   render();
 }
 
@@ -195,13 +204,14 @@ function onOppAvatarClick() {
     }
     return;
   }
-  if (pend.skillId !== null) return;
-
-  if (pend.selected.length === 2) {
+  if (pend.skillId === 'zhangba') {
     // 丈八蛇矛：两张手牌合成【杀】
-    finish({ cards: [...pend.selected], card: pend.selected[0], targets: [opp] });
+    if (pend.selected.length === 2) {
+      finish({ cards: [...pend.selected], card: pend.selected[0], targets: [opp] });
+    }
     return;
   }
+  if (pend.skillId !== null) return;
   if (pend.selected.length !== 1) return;
 
   const sel = pend.selected[0];

@@ -52,11 +52,11 @@ const EQUIP_SLOTS = ['weapon', 'armor', 'horse+', 'horse-'];
 
 // 装备区：固定 4 槽位，空槽显示占位，避免布局跳动
 // pick 用于制衡等「可弃置装备」的场景，标记哪些装备可点选/已选
-function equipHtml(p, pick = null) {
+function equipHtml(p, pick = null, canPick = () => false) {
   return EQUIP_SLOTS.map(slot => {
     const c = p.equip[slot];
-    const opts = c && pick
-      ? { small: true, selectable: true, selected: pick.has(c.id) }
+    const opts = c && pick && (canPick(c) || pick.has(c.id))
+      ? { small: true, selectable: canPick(c), selected: pick.has(c.id) }
       : { small: true };
     return `<div class="slot" data-zone="equip:${slot}">
       <div class="zone-label">${SLOT_LABEL[slot]}</div>
@@ -81,7 +81,7 @@ function handBackHtml(n) {
 
 const KINGDOM_CLASS = { 蜀: 'k-shu', 魏: 'k-wei', 吴: 'k-wu', 群: 'k-qun' };
 
-function playerZoneHtml(game, p, isSelf, equipPick = null) {
+function playerZoneHtml(game, p, isSelf, equipPick = null, canPick = () => false) {
   const skillNames = p.hero.skills.map(s => SKILL_CNAME[s] || s).join(' · ');
   const isTurn = game.players[game.currentTurnSeat ?? 0] === p;
   // 头像图缺失时自行移除，回落为纯文字武将牌（不留白块）；阵亡武将牌整体变灰
@@ -97,7 +97,7 @@ function playerZoneHtml(game, p, isSelf, equipPick = null) {
     </div>
     <div class="zones">
       ${judgeHtml(p)}
-      <div class="zone equips">${equipHtml(p, equipPick)}</div>
+      <div class="zone equips">${equipHtml(p, equipPick, canPick)}</div>
     </div>
     ${isSelf ? '' : handBackHtml(p.hand.length)}
   `;
@@ -109,16 +109,34 @@ const SKILL_CNAME = {
   guicai: '鬼才', wushuang: '无双',
 };
 
-// ---------- 出牌阶段可选牌判断 ----------
-// 全部委托给引擎的统一判据，避免 UI/引擎规则不一致。
-// 一张牌可被点选的情形：① 能以本名使用；② 能被武圣转化为【杀】；③ 能作为丈八蛇矛的合成材料。
-function usableAlone(game, p, card) {
-  return canUseInPlayPhase(game, p, card)
-    || (canUseAsSha(p, card) && canUseInPlayPhase(game, p, card, 'sha'));
+// 自己装备区的某张牌当前可否点选：
+//   制衡（弃置任意张牌）、贯石斧（弃两张牌，不含贯石斧本身）、
+//   武圣（红色装备牌当【杀】使用或打出）
+export function equipSelectable(game, me, pend, card) {
+  if (!pend || !card) return false;
+  if (pend.mode === 'play' && pend.skillId === 'zhiheng') return true;
+  if (pend.mode === 'pick-hand' && pend.opts.opts.includeEquip) {
+    return !(me.equip.weapon?.name === 'guanshi' && card.id === me.equip.weapon.id);
+  }
+  if (pend.mode === 'play' && !pend.skillId) {
+    return canUseAsSha(me, card) && canUseInPlayPhase(game, me, card, 'sha');
+  }
+  if (pend.mode === 'respond' && pend.opts.req.type === 'sha') return canUseAsSha(me, card);
+  return false;
 }
 
+// 选中的牌是否为自己装备区的牌（武圣以装备当【杀】）
+export function isEquipped(me, card) {
+  return Object.values(me.equip).some(e => e && card && e.id === card.id);
+}
+
+// ---------- 出牌阶段可选牌判断 ----------
+// 全部委托给引擎的统一判据，避免 UI/引擎规则不一致。
+// 一张牌可被点选的情形：① 能以本名使用；② 能被武圣转化为【杀】。
+// 丈八蛇矛的双牌【杀】需先点「丈八蛇矛」按钮（官方式装备技能），再选两张手牌。
 function playableCheck(game, p, card) {
-  return usableAlone(game, p, card) || canUseZhangbaSha(game, p);
+  return canUseInPlayPhase(game, p, card)
+    || (canUseAsSha(p, card) && canUseInPlayPhase(game, p, card, 'sha'));
 }
 
 // 距离 / 攻击范围 / 杀次数 提示
@@ -152,7 +170,7 @@ export function isOppTargetable(game, pend) {
   return !!(pend?.mode === 'play' && pend.skillId !== 'zhiheng' && (
     (pend.skillId === 'rende' && pend.selected.length > 0) ||
     // 丈八蛇矛：两张手牌合成【杀】需指定目标
-    (pend.skillId === null && pend.selected.length === 2) ||
+    (pend.skillId === 'zhangba' && pend.selected.length === 2) ||
     (pend.skillId === null && pend.selected.length === 1 && (
       NEED_TARGET.includes(pend.selected[0].name)
       // 武圣：以【杀】名义使用同样需要指定目标
@@ -199,10 +217,9 @@ export function renderGame(game, ui, logs) {
   document.getElementById('opp-row').innerHTML = playerZoneHtml(game, opp, false);
   document.getElementById('opp-row').classList.toggle('targetable', !!oppTargetable);
   // 制衡可弃置装备区的牌，故此时自己的装备需要可点选
-  const equipPick = pend?.mode === 'play' && pend.skillId === 'zhiheng'
-    ? new Set(pend.selected.map(c => c.id))
-    : null;
-  document.getElementById('self-row').innerHTML = playerZoneHtml(game, me, true, equipPick);
+  const equipPick = pend ? new Set(pend.selected.map(c => c.id)) : null;
+  document.getElementById('self-row').innerHTML = playerZoneHtml(game, me, true, equipPick,
+    c => equipSelectable(game, me, pend, c));
 
   // 手牌
   const handEl = document.getElementById('hand-row');
@@ -211,7 +228,9 @@ export function renderGame(game, ui, logs) {
     selectedIds = new Set(pend.selected.map(c => c.id));
     if (pend.mode === 'play') {
       if (pend.skillId) {
-        handSelectable = new Set(me.hand.map(c => c.id));
+        // 丈八蛇矛至多选两张；已满两张时其余牌不可再选
+        const full = pend.skillId === 'zhangba' && pend.selected.length >= 2;
+        handSelectable = new Set(me.hand.filter(c => !full || selectedIds.has(c.id)).map(c => c.id));
       } else {
         handSelectable = new Set(me.hand.filter(c => playableCheck(game, me, c)).map(c => c.id));
       }
@@ -316,6 +335,13 @@ function bannerHtml(game, ui) {
         prompt = '【制衡】选择要弃置的牌（任意张）';
         hint = '手牌与装备区的牌都可以弃置';
         buttons = btn('confirm-zhiheng', `确定${n ? `（${n}）` : ''}`, { primary: true, disabled: n === 0 }) + btn('cancel-skill', '返回');
+      } else if (pend.skillId === 'zhangba') {
+        const n = pend.selected.length;
+        prompt = n === 2
+          ? '【丈八蛇矛】拖到对方武将或点击其头像为目标'
+          : `【丈八蛇矛】选择两张手牌当【杀】使用（已选 ${n}/2）`;
+        hint = rangeInfoHtml(game);
+        buttons = btn('cancel-skill', '返回');
       } else if (pend.skillId === 'rende') {
         const n = pend.selected.length;
         prompt = '【仁德】选择要交出的手牌，然后点击对方头像';
@@ -325,30 +351,21 @@ function bannerHtml(game, ui) {
         const sel = pend.selected[0];
         prompt = '出牌阶段';
         hint = `${rangeInfoHtml(game)} · 可拖动手牌出牌`;
-        if (pend.selected.length === 2) {
-          // 丈八蛇矛：两张手牌合成【杀】，需指定目标
-          prompt = '【丈八蛇矛】将两张手牌当【杀】，拖到对方武将或点击其头像为目标';
-          buttons = btn('cancel-skill', '取消选择');
-        } else if (sel) {
+        if (sel) {
           const selfOk = canUseInPlayPhase(game, me, sel);
           const asShaOk = canUseAsSha(me, sel) && canUseInPlayPhase(game, me, sel, 'sha');
-          const pairOk = canZhangbaPair(me) && canUseZhangbaSha(game, me);
           const cname = CARD_NAME[sel.name] || sel.name;
 
           if (pend.asSha || (!selfOk && asShaOk)) {
             // 武圣：以【杀】名义使用，需指定目标
-            prompt = `【武圣】将 ${cname} 当【杀】使用，拖到对方武将或点击其头像为目标`;
-            buttons = btn('cancel-skill', '取消选择');
-          } else if (!selfOk) {
-            // 只能作为丈八蛇矛的合成材料（如【闪】【无懈可击】）
-            prompt = `已选【${cname}】，请再选一张手牌组成【杀】`;
+            const where = isEquipped(me, sel) ? '装备区的' : '';
+            prompt = `【武圣】将${where} ${cname} 当【杀】使用，点击对方头像为目标`;
             buttons = btn('cancel-skill', '取消选择');
           } else if (NEED_TARGET.includes(sel.name)) {
             prompt = `已选【${cname}】，拖到对方武将或点击其头像为目标`;
             buttons = (asShaOk ? btn('use-as-sha', '当【杀】使用') : '') + btn('cancel-skill', '取消选择');
           } else {
             prompt = `使用【${cname}】？`;
-            if (pairOk) hint = '也可再选一张手牌组成【杀】';
             buttons = btn('confirm-play', '确定', { primary: true })
               + (asShaOk ? btn('use-as-sha', '当【杀】使用') : '')
               + btn('cancel-skill', '取消选择');
@@ -359,6 +376,8 @@ function bannerHtml(game, ui) {
             // 制衡出牌阶段限一次，用过后置灰
             (hasSkill(me, 'zhiheng') ? btn('skill-zhiheng', '制衡', { disabled: !!me.flags.zhihengUsed }) : '') +
             (hasSkill(me, 'rende') ? btn('skill-rende', '仁德') : '') +
+            // 丈八蛇矛：装备技能按钮（官方式），可用时才出现
+            (canUseZhangbaSha(game, me) ? btn('skill-zhangba', '丈八蛇矛') : '') +
             btn('end-play', '结束出牌', { primary: !hasActiveSkill });
         }
       }
@@ -406,7 +425,9 @@ function bannerHtml(game, ui) {
       const name = pend.opts.skillId === 'bagua' ? '八卦阵'
         : pend.opts.skillId === 'jianxiong' ? '奸雄（获得伤害你的牌）'
         : pend.opts.skillId === 'fankui' ? '反馈（获得伤害来源一张牌）'
-        : pend.opts.skillId === 'cixiong' ? '雌雄双股剑' : pend.opts.skillId;
+        : pend.opts.skillId === 'cixiong' ? '雌雄双股剑'
+        : pend.opts.skillId === 'hanbing' ? `寒冰剑（防止此伤害，改为弃置 ${pend.opts.info.target?.name || '对方'} 两张牌）`
+        : pend.opts.skillId;
       prompt = `是否发动【${name}】？`;
       buttons = btn('yes', '发动', { primary: true }) + btn('no', '不发动');
       break;
@@ -422,7 +443,7 @@ function bannerHtml(game, ui) {
       const { count, reason, optional } = pend.opts.opts;
       const text = {
         'discard-phase': `请选择 ${count} 张手牌弃置`,
-        'guanshi': '【贯石斧】弃 2 张牌强制命中？',
+        'guanshi': '【贯石斧】弃置两张牌（可含装备，贯石斧除外）令此【杀】依然造成伤害？',
         'cixiong-discard': '【雌雄双股剑】弃 1 张手牌（取消则让对方摸牌）',
       }[reason] || `请选择 ${count} 张手牌`;
       prompt = text;
@@ -434,10 +455,10 @@ function bannerHtml(game, ui) {
     case 'pick-zone': {
       const { from, reason, info } = pend.opts.opts;
       const t = info?.target;
-      const title = { shunshou: '顺手牵羊', guohe: '过河拆桥', fankui: '反馈', qilin: '麒麟弓' }[reason];
+      const title = ZONE_TITLE[reason];
       prompt = from === 'horse'
         ? `【${title}】选择 ${t.name} 的一匹坐骑弃置`
-        : `【${title || '选牌'}】选择 ${t ? t.name : '对方'} 的一张牌${reason === 'guohe' ? '弃置' : '获得'}`;
+        : `【${title || '选牌'}】选择 ${t ? t.name : '对方'} 的一张牌${reason === 'guohe' || reason === 'hanbing' ? '弃置' : '获得'}`;
       hint = '在弹出的面板中点击一张牌';
       break;
     }
@@ -455,7 +476,9 @@ function bannerHtml(game, ui) {
   return `<span class="prompt">${prompt}</span>${hint ? `<span class="hint">${hint}</span>` : ''}<span style="flex:1"></span>${buttons}`;
 }
 
-// ---------- 选牌面板（官方样式：顺/拆/反馈/麒麟弓、五谷丰登、观星） ----------
+const ZONE_TITLE = { shunshou: '顺手牵羊', guohe: '过河拆桥', fankui: '反馈', qilin: '麒麟弓', hanbing: '寒冰剑' };
+
+// ---------- 选牌面板（官方样式：顺/拆/反馈/麒麟弓/寒冰剑、五谷丰登、观星） ----------
 function pickerHtml(game, ui) {
   const pend = ui.pending;
   const me = game.players[0];
@@ -485,9 +508,9 @@ function pickerHtml(game, ui) {
   if (!pend) return '';
 
   if (pend.mode === 'pick-zone') {
-    const { from, reason, info, optional } = pend.opts.opts;
+    const { from, reason, info, optional, noJudge } = pend.opts.opts;
     const t = info.target;
-    const title = { shunshou: '顺手牵羊', guohe: '过河拆桥', fankui: '反馈', qilin: '麒麟弓' }[reason] || '选择一张牌';
+    const title = ZONE_TITLE[reason] || '选择一张牌';
     const item = (zone, inner) => `<div class="pick-item" data-action="zone:${zone}">${inner}</div>`;
     const sections = [];
     if (from !== 'horse' && t.hand.length) {
@@ -498,7 +521,8 @@ function pickerHtml(game, ui) {
     const slots = from === 'horse' ? ['horse+', 'horse-'] : EQUIP_SLOTS;
     const equips = slots.filter(s => t.equip[s]).map(s => item(s, cardHtml(t.equip[s], { selectable: true }))).join('');
     if (equips) sections.push(['装备区', equips]);
-    if (from !== 'horse' && t.judgeZone.length) {
+    // 反馈/寒冰剑针对「角色的牌」，不含判定区
+    if (from !== 'horse' && !noJudge && t.judgeZone.length) {
       sections.push(['判定区', t.judgeZone.map(c => item(c.name, cardHtml(c, { selectable: true }))).join('')]);
     }
     // 无懈链期间对方可能把牌打光：无牌可选时允许跳过，避免死局

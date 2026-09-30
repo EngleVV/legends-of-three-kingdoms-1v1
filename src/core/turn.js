@@ -89,7 +89,11 @@ export async function runTurn(game, player) {
   // 摸牌（观星钩子在 phaseStart:draw 拦截）
   await enterPhase('draw');
   if (game.over) return;
-  game.drawCards(player, 2);
+  // 官方单挑：先手第一个回合的摸牌阶段少摸一张
+  const firstTurn = !!game.firstTurnPending;
+  game.firstTurnPending = false;
+  if (firstTurn) game.log(`${player.name} 为先手，首回合少摸一张牌`);
+  game.drawCards(player, firstTurn ? 1 : 2);
 
   // 出牌
   await enterPhase('play');

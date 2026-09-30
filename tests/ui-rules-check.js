@@ -195,26 +195,48 @@ check(names.includes('juedou'), '【决斗】不受距离限制，仍可点选')
 check($('#banner').textContent.includes('攻击范围外'), '横幅应提示超出攻击范围');
 g.players[1].equip['horse+'] = null;
 
-console.log('\n== 6) 丈八蛇矛：闪可作为合成材料 ==');
+console.log('\n== 6) 丈八蛇矛：官方式按钮激活，选两张手牌当【杀】 ==');
 await ensurePlayPhase();
 normalizeOpp(g);
-me.equip.weapon = grab('zhangba');
-me.hand = [grab('shan'), grab('wuxie')].filter(Boolean);
-me.flags.shaUsed = 0;
-g.notify();
-await sleep(10);
-names = selectableNames();
-check(names.includes('shan'), '装备丈八蛇矛后【闪】可作为材料点选');
-// 选一张后应提示再选一张，而不是提供"确定"
-const material = $$('#hand-row .card.selectable')[0];
-if (material) {
-  click(material);
+{
+  const findBtn = n => $$('#banner [data-action], #picker [data-action]').find(b => b.dataset.action === n);
+  me.equip.weapon = grab('zhangba');
+  me.hand = [grab('shan'), grab('wuxie')].filter(Boolean);
+  me.flags.shaUsed = 0;
+  g.notify();
   await sleep(10);
-  check($('#banner').textContent.includes('再选一张'), '仅选一张材料时提示再选一张');
-  check(!$$('#banner [data-action], #picker [data-action]').some(b => b.dataset.action === 'confirm-play'),
-    '仅选一张【闪】时不应出现"确定"（避免白白弃牌）');
-} else {
-  check(false, '应有可点选的合成材料（前置断言已失败，跳过后续）');
+  names = selectableNames();
+  check(!names.includes('shan'), '未激活丈八蛇矛时【闪】不可点选');
+  const zb = findBtn('skill-zhangba');
+  check(!!zb, '装备丈八蛇矛后出牌阶段出现【丈八蛇矛】按钮');
+  if (zb) {
+    click(zb);
+    await sleep(10);
+    check(selectableNames().length === 2, '激活后两张手牌均可点选');
+    click($$('#hand-row .card.selectable')[0]);
+    await sleep(10);
+    check($('#banner').textContent.includes('1/2'), '选一张时提示已选 1/2');
+    check(!findBtn('confirm-play'), '仅选一张时不应出现"确定"');
+    check(!$('#opp-row').classList.contains('targetable'), '仅选一张时对手不可指定');
+    click($$('#hand-row .card.selectable:not(.selected)')[0]);
+    await sleep(10);
+    check($('#opp-row').classList.contains('targetable'), '选满两张后可指定对手');
+    click(findBtn('cancel-skill'));
+    await sleep(10);
+  }
+  // 未激活时不自动合成：先选【桃】再点【无中生有】应切换选择
+  me.hp = 1;
+  me.hand = [grab('tao'), grab('wuzhong')].filter(Boolean);
+  g.notify();
+  await sleep(10);
+  const byName = n => $$('#hand-row [data-card-id]').find(el =>
+    me.hand.find(c => c.id === Number(el.dataset.cardId))?.name === n);
+  click(byName('tao')); await sleep(10);
+  click(byName('wuzhong')); await sleep(10);
+  const sel = window.__ui().pending.selected;
+  check(sel.length === 1 && sel[0].name === 'wuzhong', '持丈八蛇矛时点另一张牌是切换选择而非合成');
+  const c = findBtn('cancel-skill'); if (c) { click(c); await sleep(10); }
+  me.equip.weapon = null;
 }
 
 console.log('\n== 7) 不可选的牌点了不能生效（防止冒充） ==');
@@ -356,6 +378,33 @@ normalizeOpp(g);
     check(!!field.querySelector('.judge-tag.on'), '处理区显示「生效」');
   } else {
     console.log('  （牌堆无黑桃2~9，跳过）');
+  }
+}
+
+console.log('\n== 12) 武圣：装备区的红色牌可当【杀】使用 ==');
+await ensurePlayPhase();
+normalizeOpp(g);
+{
+  if (!me.hero.skills.includes('wusheng')) me.hero = { ...me.hero, skills: [...me.hero.skills, 'wusheng'] };
+  const chitu = STD_DECK.find(c => c.name === 'ma-1' && (c.suit === '♥' || c.suit === '♦'));
+  const horse = { ...chitu, id: ++synthId };
+  me.equip.weapon = null;
+  me.equip['horse-'] = horse;
+  me.hand = [];
+  me.flags.shaUsed = 0;
+  g.notify();
+  await sleep(10);
+  const eq = $(`#self-row [data-card-id="${horse.id}"]`);
+  check(!!eq && eq.classList.contains('selectable'), '红色坐骑在装备区可点选（武圣）');
+  if (eq) {
+    click(eq);
+    await sleep(10);
+    check($('#banner').textContent.includes('武圣'), '横幅提示以【武圣】当【杀】');
+    check($('#opp-row').classList.contains('targetable'), '选中后可指定对手');
+    click($('#opp-row .avatar'));
+    await sleep(40);
+    check(!me.equip['horse-'], '该坐骑已离开装备区');
+    check(me.flags.shaUsed === 1, '计入本回合【杀】次数');
   }
 }
 

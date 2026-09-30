@@ -42,15 +42,22 @@ export class UIController extends Controller {
     if (!pend) return;
     const i = pend.selected.findIndex(c => c.id === card.id);
     if (pend.mode === 'play' && pend.skillId) {
-      // 制衡（弃置任意张）/ 仁德（交出任意张）：多选，再点一次取消
+      // 制衡（弃置任意张）/ 仁德（交出任意张）：多选，再点一次取消；丈八蛇矛至多两张
+      const max = pend.skillId === 'zhangba' ? 2 : Infinity;
       if (i >= 0) pend.selected.splice(i, 1);
-      else pend.selected.push(card);
-    } else if (pend.mode === 'play' || pend.mode === 'respond') {
-      // 丈八蛇矛：可选两张手牌当【杀】（其余情况单选）
+      else if (pend.selected.length < max) pend.selected.push(card);
+    } else if (pend.mode === 'play') {
+      // 出牌阶段单选（丈八蛇矛的双牌【杀】需先点「丈八蛇矛」按钮）
+      if (i >= 0) { pend.selected.splice(i, 1); pend.asSha = false; return; }
+      pend.selected = [card];
+      pend.asSha = false;
+    } else if (pend.mode === 'respond') {
+      // 响应【杀】时，装备丈八蛇矛可选两张手牌当【杀】打出（其余情况单选）
       const me = this.game?.players[0];
       const zhangba = me?.equip.weapon?.name === 'zhangba';
       if (i >= 0) { pend.selected.splice(i, 1); pend.asSha = false; return; }
-      if (zhangba && pend.selected.length === 1
+      const inHand = c => me.hand.some(h => h.id === c.id);
+      if (zhangba && pend.selected.length === 1 && inHand(pend.selected[0]) && inHand(card)
         && pend.selected[0].name !== 'sha' && card.name !== 'sha') {
         // 已选 1 张非杀牌，再选 1 张非杀牌 → 组成合成【杀】
         pend.selected.push(card);
@@ -64,7 +71,7 @@ export class UIController extends Controller {
       pend.selected = i >= 0 ? [] : [card];
     } else {
       // 多选（pick-hand）
-      const max = pend.opts?.count ?? Infinity;
+      const max = pend.opts?.opts?.count ?? Infinity;
       if (i >= 0) pend.selected.splice(i, 1);
       else if (pend.selected.length < max) pend.selected.push(card);
     }

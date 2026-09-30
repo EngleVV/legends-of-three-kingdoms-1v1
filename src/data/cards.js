@@ -1,4 +1,4 @@
-// 标准版牌堆 104 张
+// 官方标准版牌堆 104 张 + EX 4 张（寒冰剑、仁王盾、红桃Q【闪电】、方片Q【无懈可击】）= 108 张
 // type: basic | trick | delayed | equip
 // subType（装备）: weapon | armor | horse+ | horse-
 import { hasSkill } from './heroes.js';
@@ -10,11 +10,12 @@ export const CARD_NAME = {
   wugu: '五谷丰登', wuxie: '无懈可击', le: '乐不思蜀', shandian: '闪电',
   zhugenu: '诸葛连弩', qinglong: '青龙偃月刀', cixiong: '雌雄双股剑',
   guanshi: '贯石斧', zhangba: '丈八蛇矛', fangtian: '方天画戟', qilin: '麒麟弓',
-  bagua: '八卦阵', 'ma+1': '+1马', 'ma-1': '-1马',
+  qinggang: '青釭剑', hanbing: '寒冰剑',
+  bagua: '八卦阵', renwang: '仁王盾', 'ma+1': '+1马', 'ma-1': '-1马',
 };
 
 export const EQUIP_RANGE = {
-  zhugenu: 1, qinglong: 3, cixiong: 2, guanshi: 3, zhangba: 3, fangtian: 4, qilin: 5,
+  zhugenu: 1, qinggang: 2, cixiong: 2, hanbing: 2, qinglong: 3, guanshi: 3, zhangba: 3, fangtian: 4, qilin: 5,
 };
 
 export const HORSE_NAME = {
@@ -36,22 +37,22 @@ function mk(name, suit, rank, type, subType = null) {
 // 必须显式映射，否则装备时会写进错误的栏位。
 const HORSE_SLOT = { 'ma+1': 'horse+', 'ma-1': 'horse-' };
 
-// 每种牌的花色/点数表（按标准版近似还原）
+// 每种牌的花色/点数表（按官方标准版 + EX 还原，每种花色各 27 张）
 const TABLE = [
   // ---- 基本牌 ----
   ...['7', '8', '8', '9', '9', '10', '10'].map(r => mk('sha', '♠', +r, 'basic')),
   ...['10', '10', '11'].map(r => mk('sha', '♥', +r, 'basic')),
   ...['2', '3', '4', '5', '6', '7', '8', '8', '9', '9', '10', '10', '11', '11'].map(r => mk('sha', '♣', +r, 'basic')),
   ...['6', '7', '8', '9', '10', '13'].map(r => mk('sha', '♦', +r, 'basic')),
-  ...['2', '2'].map(r => mk('shan', '♠', +r, 'basic')),
   ...['2', '2', '13'].map(r => mk('shan', '♥', +r, 'basic')),
-  ...['2', '2', '3', '4', '5', '6', '7', '8', '9', '10'].map(r => mk('shan', '♦', +r, 'basic')),
-  ...['3', '4', '5', '6', '7', '8', '9', '12'].map(r => mk('tao', '♥', +r, 'basic')),
+  ...['2', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '11'].map(r => mk('shan', '♦', +r, 'basic')),
+  ...['3', '4', '6', '7', '8', '9', '12'].map(r => mk('tao', '♥', +r, 'basic')),
+  mk('tao', '♦', 12, 'basic'),
   // ---- 锦囊 ----
   mk('juedou', '♠', 1, 'trick'), mk('juedou', '♣', 1, 'trick'), mk('juedou', '♦', 1, 'trick'),
   ...['7', '8', '9', '11'].map(r => mk('wuzhong', '♥', +r, 'trick')),
-  ...[['♠', 3], ['♠', 4], ['♣', 3], ['♣', 4], ['♦', 3]].map(([s, r]) => mk('shunshou', s, r, 'trick')),
-  ...[['♠', 3], ['♠', 4], ['♠', 12], ['♣', 3], ['♣', 4], ['♣', 12]].map(([s, r]) => mk('guohe', s, r, 'trick')),
+  ...[['♠', 3], ['♠', 4], ['♠', 11], ['♦', 3], ['♦', 4]].map(([s, r]) => mk('shunshou', s, r, 'trick')),
+  ...[['♠', 3], ['♠', 4], ['♠', 12], ['♣', 3], ['♣', 4], ['♥', 12]].map(([s, r]) => mk('guohe', s, r, 'trick')),
   ...[['♠', 7], ['♠', 13], ['♣', 7]].map(([s, r]) => mk('nanman', s, r, 'trick')),
   mk('wanjian', '♥', 1, 'trick'),
   mk('taoyuan', '♥', 1, 'trick'),
@@ -62,13 +63,17 @@ const TABLE = [
   ...[['♠', 1], ['♥', 12]].map(([s, r]) => mk('shandian', s, r, 'delayed')),
   // ---- 装备 ----
   mk('zhugenu', '♣', 1, 'equip', 'weapon'),
+  mk('zhugenu', '♦', 1, 'equip', 'weapon'),
+  mk('qinggang', '♠', 6, 'equip', 'weapon'),
+  mk('hanbing', '♠', 2, 'equip', 'weapon'),
   mk('qinglong', '♠', 5, 'equip', 'weapon'),
-  mk('cixiong', '♦', 2, 'equip', 'weapon'),
+  mk('cixiong', '♠', 2, 'equip', 'weapon'),
   mk('guanshi', '♦', 5, 'equip', 'weapon'),
   mk('zhangba', '♠', 12, 'equip', 'weapon'),
   mk('fangtian', '♦', 12, 'equip', 'weapon'),
   mk('qilin', '♥', 5, 'equip', 'weapon'),
   ...[['♠', 2], ['♣', 2]].map(([s, r]) => mk('bagua', s, r, 'equip', 'armor')),
+  mk('renwang', '♣', 2, 'equip', 'armor'),
   ...Object.values(HORSE_NAME).map(([, , suit, rank, sub]) => mk(sub, suit, rank, 'equip', HORSE_SLOT[sub])),
 ];
 
@@ -88,6 +93,30 @@ export function cardLabel(card) {
 
 export function isRed(card) {
   return card.suit === '♥' || card.suit === '♦';
+}
+
+// 牌的颜色：'red' | 'black' | null（无色）。
+// 合成牌（丈八蛇矛的两张手牌当【杀】）：两张同色则为该色，否则无色——影响仁王盾等判定。
+export function cardColor(card) {
+  if (!card) return null;
+  if (card.composite) {
+    const cs = (card.reals || []).map(cardColor);
+    return cs.length && cs.every(c => c === cs[0]) ? cs[0] : null;
+  }
+  if (card.suit == null) return null;
+  return isRed(card) ? 'red' : 'black';
+}
+
+// 生效中的防具：青釭剑（锁定技）令持有者使用的【杀】无视目标防具。
+// source 为本次【杀】的使用者；非【杀】场景（万箭齐发等）传 null。
+export function armorOf(target, source = null) {
+  if (source && source.equip.weapon?.name === 'qinggang') return null;
+  return target.equip.armor || null;
+}
+
+// 仁王盾（锁定技）：黑色【杀】对装备者无效
+export function renwangBlocks(source, target, vcard) {
+  return armorOf(target, source)?.name === 'renwang' && cardColor(vcard) === 'black';
 }
 
 // ---------- 判定 ----------
@@ -121,8 +150,14 @@ export function inAttackRange(source, target) {
   return distance(source, target) <= attackRange(source);
 }
 
+// 「区域里的牌」= 手牌 + 装备区 + 判定区（顺手牵羊/过河拆桥）
 export function hasCardInArea(p) {
-  return p.hand.length > 0 || Object.values(p.equip).some(Boolean) || p.judgeZone.length > 0;
+  return hasCard(p) || p.judgeZone.length > 0;
+}
+
+// 「角色的牌」= 手牌 + 装备区，不含判定区（反馈、寒冰剑）
+export function hasCard(p) {
+  return p.hand.length > 0 || Object.values(p.equip).some(Boolean);
 }
 
 export function canTarget(game, source, target, cardName) {
@@ -165,8 +200,23 @@ export function shaLeftOf(player) {
   return Math.max(0, shaLimitOf(player) - (player.flags.shaUsed || 0));
 }
 
+// 失去某些牌之后的角色视图：以装备区的牌当【杀】（武圣）时，官方按失去该装备后的
+// 距离/攻击范围/次数上限判定（如把赤兔当【杀】则不再享受 -1 距离）。
+export function afterLosing(player, cards) {
+  const ids = new Set(cards.map(c => c.id));
+  const lost = Object.keys(player.equip).filter(k => player.equip[k] && ids.has(player.equip[k].id));
+  if (!lost.length) return player;
+  const equip = { ...player.equip };
+  for (const k of lost) equip[k] = null;
+  return Object.assign(Object.create(Object.getPrototypeOf(player)), player, { equip });
+}
+
+export function equipCardOf(player, card) {
+  return Object.values(player.equip).find(e => e && card && e.id === card.id) || null;
+}
+
 // ---------- 转化途径 ----------
-// 武圣：关羽可将任意红色牌当【杀】使用或打出
+// 武圣：关羽可将任意红色牌（手牌或装备区的牌）当【杀】使用或打出
 export function canUseAsSha(player, card) {
   return hasSkill(player, 'wusheng') && isRed(card);
 }
@@ -192,6 +242,7 @@ export function canRespondWith(player, type) {
   if (type === 'shan') return player.hand.some(c => c.name === 'shan');
   if (type === 'sha') {
     return player.hand.some(c => canUseCardAs(player, c, 'sha'))
+      || Object.values(player.equip).some(e => e && canUseAsSha(player, e))
       || canZhangbaPair(player);
   }
   return false;
@@ -203,6 +254,12 @@ export function canRespondWith(player, type) {
 export function canUseInPlayPhase(game, player, card, asName = null) {
   const name = asName || card.name;
   const opp = game.opponentOf(player);
+
+  // 装备区的牌只能经武圣当【杀】使用，且按失去该装备后的状态判定
+  if (equipCardOf(player, card)) {
+    if (!(name === 'sha' && canUseAsSha(player, card))) return false;
+    player = afterLosing(player, [card]);
+  }
 
   // 以非本名使用时，必须存在合法转化途径（目前只有武圣的红牌当杀）
   if (name !== card.name && !(name === 'sha' && canUseAsSha(player, card))) return false;

@@ -195,9 +195,11 @@ export class Game {
   async run() {
     this.registerHeroHooks();
     this.log(`对局开始：${this.players.map(p => p.name).join(' vs ')}`);
-    for (const p of this.players) this.drawCards(p, 4);
+    // 官方单挑规则：起始手牌数等于武将体力上限；为平衡先手，先手首个摸牌阶段少摸一张
+    for (const p of this.players) this.drawCards(p, p.maxHp);
     let current = Math.round(Math.random());
     this.log(`${this.players[current].name} 先手`);
+    this.firstTurnPending = true;
     while (!this.over) {
       await runTurn(this, this.players[current]);
       current = 1 - current;

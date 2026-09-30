@@ -60,14 +60,21 @@ async function setupHand(names, oppHp = 4) {
   await waitPlay();
   await page.evaluate(([names, oppHp]) => {
     const g = window.__sg();
+    // 牌堆里可能恰好没有该牌（已被摸走/打出），依次从牌堆、弃牌堆取
     const grab = n => {
-      const i = g.deck.cards.findIndex(c => c.name === n);
-      return i >= 0 ? g.deck.cards.splice(i, 1)[0] : null;
+      for (const pile of [g.deck.cards, g.deck.discardPile]) {
+        const i = pile.findIndex(c => c.name === n);
+        if (i >= 0) return pile.splice(i, 1)[0];
+      }
+      return null;
     };
     const [me, opp] = g.players;
     me.hand = names.map(grab).filter(Boolean);
     me.flags.shaUsed = 0;
     me.equip.weapon = null; opp.equip.armor = null;
+    // 对手随机：去掉 +1 马、保证有手牌（避免空城），确保【杀】可指定
+    opp.equip['horse+'] = null;
+    if (!opp.hand.length) { const c = g.deck.cards.pop(); if (c) opp.hand.push(c); }
     opp.hp = oppHp; opp.maxHp = Math.max(opp.maxHp, oppHp);
     g.notify();
   }, [names, oppHp]);

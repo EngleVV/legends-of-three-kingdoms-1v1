@@ -192,10 +192,10 @@ export function chooseCards(game, p, opts) {
   if (from === 'target-area') {
     const t = info?.target;
     if (!t) return null;
-    // 拆/顺优先级：武器 > 防具 > 判定区乐 > 手牌 > 马
+    // 拆/顺优先级：武器 > 防具 > 判定区乐 > 手牌 > 马（反馈/寒冰剑不可选判定区）
     if (t.equip.weapon) return ['weapon'];
     if (t.equip.armor) return ['armor'];
-    const le = t.judgeZone.find(c => c.name === 'le');
+    const le = !opts.noJudge && t.judgeZone.find(c => c.name === 'le');
     if (le) return ['le'];
     if (t.hand.length > 0) return ['hand'];
     if (t.equip['horse+']) return ['horse+'];
@@ -249,4 +249,19 @@ export function chooseGuanxing(game, p, cards) {
   const top = sorted.filter((c, i) => i < 2 && value(c) > 5);
   const bottom = sorted.filter(c => !top.some(x => x.id === c.id));
   return { top, bottom };
+}
+
+// 是否发动可选技能/装备效果
+export function chooseInvoke(game, p, skillId, info = {}) {
+  if (skillId === 'hanbing') {
+    // 寒冰剑：防止伤害改为弃两张牌。对方有奸雄/反馈（受伤有收益）或体力充裕且牌多时发动
+    const t = info.target;
+    if (!t) return false;
+    const n = t.hand.length + Object.values(t.equip).filter(Boolean).length;
+    if (n < 2) return false;
+    if (hasSkill(t, 'jianxiong') || hasSkill(t, 'fankui')) return t.hp > 1;
+    return t.hp >= 3 && n >= 3;
+  }
+  // 奸雄/反馈：收益为正必发；八卦阵：必判；雌雄：必发
+  return ['jianxiong', 'fankui', 'bagua', 'cixiong'].includes(skillId);
 }

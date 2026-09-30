@@ -312,11 +312,12 @@ test('制衡：不能弃置不属于自己的牌', async () => {
   assert.strictEqual(sq.flags.zhihengUsed, false, '非法调用不应消耗每回合限次');
 });
 
-test('反馈：可获得伤害来源判定区的牌', async () => {
+test('反馈：不能获得伤害来源判定区的牌（官方「角色的牌」不含判定区）', async () => {
+  let asked = 0;
   const g = mkGame('simayi', 'caocao',
     new ScriptController({
-      async askSkillInvoke(p, id) { return id === 'fankui'; },
-      // 选择对方判定区的【乐不思蜀】
+      async askSkillInvoke(p, id) { if (id === 'fankui') asked++; return id === 'fankui'; },
+      // 恶意选择对方判定区的【乐不思蜀】
       async askChooseCards(p, opts) { return opts.reason === 'fankui' ? ['le'] : null; },
     }),
     new AIController());
@@ -327,8 +328,13 @@ test('反馈：可获得伤害来源判定区的牌', async () => {
   cc.hand = [];
   sy.hp = 4;
   await applyDamageImported(g, cc, sy, 1, drawOut(g, 'sha'));
-  assert.ok(sy.hand.some(c => c.id === le.id), '反馈应能获得判定区的牌');
-  assert.strictEqual(cc.judgeZone.length, 0, '该牌应离开对方判定区');
+  assert.strictEqual(asked, 0, '对方只有判定区的牌时反馈不应触发');
+  // 对方有手牌时，选判定区应被引擎拒绝
+  const h = drawOut(g, 'shan');
+  cc.hand = [h];
+  await applyDamageImported(g, cc, sy, 1, drawOut(g, 'sha'));
+  assert.ok(!sy.hand.some(c => c.id === le.id), '反馈不能获得判定区的牌');
+  assert.ok(cc.judgeZone.some(c => c.id === le.id), '【乐不思蜀】应留在对方判定区');
 });
 
 test('反馈：可获得伤害来源装备区的牌', async () => {

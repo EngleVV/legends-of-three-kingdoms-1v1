@@ -1,7 +1,7 @@
 import { Controller } from '../controller.js';
 import {
   choosePlay, chooseRespond, choosePeach, chooseNullify,
-  chooseCards, chooseJudgeReplace, chooseGuanxing,
+  chooseCards, chooseJudgeReplace, chooseGuanxing, chooseInvoke,
 } from './strategy.js';
 
 export class AIController extends Controller {
@@ -36,8 +36,7 @@ export class AIController extends Controller {
 
   async askSkillInvoke(player, skillId, info) {
     await this.wait();
-    // 奸雄/反馈：收益为正必发；八卦阵：必判；雌雄：必发
-    return ['jianxiong', 'fankui', 'bagua', 'cixiong'].includes(skillId);
+    return chooseInvoke(this.game, player, skillId, info);
   }
 
   async askChooseCards(player, opts) {

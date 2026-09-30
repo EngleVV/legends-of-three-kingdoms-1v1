@@ -1,6 +1,6 @@
 // 司马懿·反馈：受到伤害后，可获得伤害来源的一张牌
-// 官方未限定手牌，装备区与判定区的牌同样可以获得（手牌不可见故随机取一张）
-import { hasCardInArea, cardLabel } from '../cards.js';
+// 「角色的牌」指手牌与装备区的牌，不含判定区（手牌不可见故随机取一张）
+import { hasCard, cardLabel } from '../cards.js';
 
 export default {
   id: 'fankui',
@@ -9,16 +9,18 @@ export default {
     {
       trigger: 'damaged',
       canTrigger: (ctx, game, owner) =>
-        ctx.target === owner && ctx.source && ctx.source.alive && hasCardInArea(ctx.source),
+        ctx.target === owner && ctx.source && ctx.source.alive && hasCard(ctx.source),
       handler: async (ctx, game, owner) => {
         const invoke = await game.ask(owner, 'askSkillInvoke', 'fankui', { source: ctx.source });
         if (!invoke) return null;
         game.log(`${owner.name} 发动【反馈】`);
         const pick = await game.ask(owner, 'askChooseCards', {
-          count: 1, from: 'target-area', reason: 'fankui', info: { target: ctx.source },
+          count: 1, from: 'target-area', reason: 'fankui', noJudge: true, info: { target: ctx.source },
         });
         if (!pick || pick.length !== 1) return null;
         const zone = pick[0];
+        // 只接受手牌或装备栏位，拒绝判定区
+        if (zone !== 'hand' && !ctx.source.equip[zone]) return null;
         const c = game.takeCardFromArea(ctx.source, zone);
         if (c) {
           owner.hand.push(c);
