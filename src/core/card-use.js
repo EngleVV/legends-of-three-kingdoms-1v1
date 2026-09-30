@@ -93,9 +93,10 @@ async function askResponse(game, player, req) {
 // ---------- 求闪（含八卦阵） ----------
 // reason 透传给 UI 以显示正确的原因（'sha' = 被杀指定，'wanjian' = 万箭齐发）
 // source：【杀】的使用者（青釭剑无视防具）；万箭齐发等非【杀】场景为 null
-async function askForShan(game, player, reason = 'sha', source = null) {
-  if (armorOf(player, source)?.name === 'bagua') {
-    const invoke = await game.ask(player, 'askSkillInvoke', 'bagua', {});
+// info：提示用上下文 { source 使用者, card 所响应的牌, nth/need 无双需第几张 }
+async function askForShan(game, player, reason = 'sha', source = null, info = {}) {
+  if (armorOf(player, reason === 'sha' ? source : null)?.name === 'bagua') {
+    const invoke = await game.ask(player, 'askSkillInvoke', 'bagua', { reason, ...info, source });
     if (invoke) {
       game.log(`${player.name} 发动【八卦阵】`);
       const jc = await doJudge(game, player, '八卦阵');
@@ -106,7 +107,7 @@ async function askForShan(game, player, reason = 'sha', source = null) {
       game.log(`${player.name} 的【八卦阵】判定未生效（${cardLabel(jc)} 为黑色）`);
     }
   }
-  const v = await askResponse(game, player, { type: 'shan', reason });
+  const v = await askResponse(game, player, { type: 'shan', reason, info: { ...info, source } });
   if (!v) return null;
   player.removeCards(realsOf(v));
   return { vcard: v };
@@ -141,7 +142,7 @@ export async function resolveSlash(game, source, target, vcard, opts = {}) {
   const needShan = hasSkill(source, 'wushuang') ? 2 : 1;
   let shanPlayed = 0;
   for (let i = 0; i < needShan; i++) {
-    const shan = await askForShan(game, target, 'sha', source);
+    const shan = await askForShan(game, target, 'sha', source, { card: vcard, nth: i + 1, need: needShan });
     if (!shan) break;
     if (shan.vcard) {
       discardUsed(game, shan.vcard);
@@ -182,7 +183,7 @@ export async function resolveSlash(game, source, target, vcard, opts = {}) {
     game.log(`${target.name} 闪避了【杀】`);
     // 青龙偃月刀：【杀】被【闪】抵消后可对同一目标再使用一张【杀】（可连续发动；不计入次数）
     if (weapon() === 'qinglong' && !game.over) {
-      const chase = await askResponse(game, source, { type: 'sha', reason: 'qinglong', info: { target } });
+      const chase = await askResponse(game, source, { type: 'sha', reason: 'qinglong', info: { target, source } });
       if (chase) {
         source.removeCards(realsOf(chase));
         game.log(`${source.name} 发动【青龙偃月刀】`);
@@ -233,7 +234,7 @@ async function cixiongEffect(game, source, target) {
   game.log(`${source.name} 发动【雌雄双股剑】`);
   if (target.hand.length > 0) {
     const give = await game.ask(target, 'askChooseCards', {
-      count: 1, from: 'self', reason: 'cixiong-discard', optional: true,
+      count: 1, from: 'self', reason: 'cixiong-discard', optional: true, info: { source },
     });
     if (give && give.length === 1 && target.hand.some(h => h.id === give[0]?.id)) {
       target.removeFromHand(give);
@@ -266,7 +267,10 @@ export async function resolveJuedou(game, source, target, vcard) {
         const need = hasSkill(game.opponentOf(current), 'wushuang') ? 2 : 1;
         let played = 0;
         for (let i = 0; i < need; i++) {
-          const v = await askResponse(game, current, { type: 'sha', reason: 'juedou', info: { vs: game.opponentOf(current) } });
+          const v = await askResponse(game, current, {
+            type: 'sha', reason: 'juedou',
+            info: { vs: game.opponentOf(current), source, card: vcard, nth: i + 1, need },
+          });
           if (!v) break;
           current.removeCards(realsOf(v));
           game.discardCards(realsOf(v), { pending: true });
@@ -406,7 +410,7 @@ export async function resolveCardUse(game, player, action) {
         await resolveTrick(game, {
           card: card.real || card, source: player, target, name: '南蛮入侵',
           apply: async () => {
-            const v = await askResponse(game, target, { type: 'sha', reason: 'nanman' });
+            const v = await askResponse(game, target, { type: 'sha', reason: 'nanman', info: { source: player, card } });
             if (v) {
                 target.removeCards(realsOf(v));
                 game.discardCards(realsOf(v), { pending: true });
@@ -425,7 +429,7 @@ export async function resolveCardUse(game, player, action) {
         await resolveTrick(game, {
           card: card.real || card, source: player, target, name: '万箭齐发',
           apply: async () => {
-            const shan = await askForShan(game, target, 'wanjian');
+            const shan = await askForShan(game, target, 'wanjian', player, { card });
             if (shan) {
               if (shan.vcard) {
                 discardUsed(game, shan.vcard);
@@ -493,7 +497,9 @@ export async function resolveCardUse(game, player, action) {
       await resolveTrick(game, {
         card: card.real || card, source: player, target, name: '借刀杀人',
         apply: async () => {
-          const v = await askResponse(game, target, { type: 'sha', reason: 'jiedao', info: { victim } });
+          const v = await askResponse(game, target, {
+            type: 'sha', reason: 'jiedao', info: { victim, source: player, weapon: target.equip.weapon },
+          });
           if (v) {
             target.removeCards(realsOf(v));
             await resolveSlash(game, target, victim, v);

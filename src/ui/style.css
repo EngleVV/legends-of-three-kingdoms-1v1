@@ -201,10 +201,43 @@ button.primary {
   font-size: 14px; font-weight: bold; color: var(--gold-lit);
   letter-spacing: 2px; text-shadow: 0 1px 4px #000;
 }
-.phase-tag {
-  font-size: 11px; color: #cdbb95; background: rgba(0,0,0,.45);
-  border: 1px solid var(--line); border-radius: 10px; padding: 2px 10px;
+/* 阶段进度条：准备 → 判定 → 摸牌 → 出牌 → 弃牌 → 结束 */
+.phase-strip { display: flex; align-items: center; gap: 0; }
+.phase-strip .ph {
+  font-size: 12px; color: #9c8d70; padding: 2px 9px; border-radius: 10px;
+  border: 1px solid transparent; letter-spacing: 1px; white-space: nowrap;
 }
+.phase-strip .ph.done { color: #6b604c; }
+.phase-strip .ph.on {
+  color: #2a1a08; font-weight: bold;
+  background: linear-gradient(#ffe29a, #d9a63e); border-color: #fff0c4;
+  box-shadow: 0 0 10px rgba(255,207,92,.55);
+}
+.phase-strip .ph.skipped { text-decoration: line-through; color: #8a4a3e; }
+.phase-strip .ph.skipped.on { color: #5a1d12; }
+.phase-strip .ph-sep { width: 8px; height: 1px; background: var(--line); }
+
+/* 当前回合角色头像上的阶段徽章 */
+.phase-badge {
+  position: absolute; top: 3px; right: 3px; z-index: 2;
+  font-size: 11px; font-weight: bold; color: #2a1a08; letter-spacing: 1px;
+  background: linear-gradient(#ffe29a, #d9a63e); border: 1px solid #fff0c4;
+  border-radius: 4px; padding: 0 4px; box-shadow: 0 1px 4px rgba(0,0,0,.6);
+}
+
+/* 思考进度条：正在等该角色做决定（样式参考官方倒计时条） */
+.think-bar {
+  width: 92px; height: 4px; border-radius: 2px; overflow: hidden;
+  background: rgba(0,0,0,.45); visibility: hidden;
+}
+.think-bar i {
+  display: block; height: 100%; width: 40%;
+  background: linear-gradient(90deg, rgba(255,207,92,0), #ffcf5c, rgba(255,207,92,0));
+}
+.hero-plate.thinking .think-bar { visibility: visible; }
+.hero-plate.thinking .think-bar i { animation: think-sweep 1.1s linear infinite; }
+.hero-plate.thinking .avatar { box-shadow: 0 0 12px rgba(255,207,92,.55); }
+@keyframes think-sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 .field-body {
   flex: 1; min-height: 0; overflow: hidden;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
@@ -230,6 +263,7 @@ button.primary {
 }
 #banner .prompt { font-weight: bold; color: #ffe9b8; }
 #banner .hint { font-size: 12px; color: #9c8d70; }
+#banner .hint.waiting { font-size: 14px; color: #cdbb95; letter-spacing: 1px; }
 #banner .mini-cards { min-height: 0; }
 
 /* ---------- 手牌 ---------- */
@@ -386,6 +420,8 @@ button.primary {
 .card.small .cname.len-4 { font-size: 9px; }
 .card.small .cname.len-5 { font-size: 8px; line-height: 1.15; }
 
+/* 官方：当前询问下不可用的手牌置暗 */
+.card.disabled { filter: brightness(.5) saturate(.55); }
 .card.selectable { outline: 2px solid #6fb8ef; cursor: pointer; }
 .card.selectable:hover { outline-color: var(--gold-lit); transform: translateY(-12px); z-index: 20; }
 .card.selected {

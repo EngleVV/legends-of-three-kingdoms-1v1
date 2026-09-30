@@ -60,6 +60,9 @@ async function playUntilOver(heroId) {
     }
 
     const prompt = $('#banner .prompt')?.textContent || '';
+    // 提示栏不应出现缺失上下文（undefined/null）、内部牌名（【sha】）或缺主语（「 对你使用了」）
+    const bannerText = $('#banner').textContent;
+    if (/undefined|null|NaN|【[a-z]|(^|[，。])\s*对你使用了/.test(bannerText)) anomalies.push(`提示栏：${bannerText.trim().slice(0, 80)}`);
     const actions = $$('#banner [data-action], #picker [data-action]');
     const hasAction = name => actions.some(b => b.dataset.action === name);
     const findAction = name => actions.find(b => b.dataset.action === name);
@@ -69,7 +72,7 @@ async function playUntilOver(heroId) {
     let acted = false;
 
     // 出牌阶段已选中需要目标的牌 → 点头像
-    if (!acted && prompt.includes('为目标') && $('#opp-row .avatar')) {
+    if (!acted && $('#opp-row.targetable .avatar')) {
       click($('#opp-row .avatar')); acted = true;
     }
     // 确认类：先选牌再确认

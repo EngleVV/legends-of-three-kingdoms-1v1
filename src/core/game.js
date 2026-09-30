@@ -31,6 +31,7 @@ export class Game {
     this.currentPhase = null; // 当前阶段（供 UI 显示处理区）
     this.lastAction = null;   // 最近一次出牌 {player, card, targets}
     this.wugu = null;         // 五谷丰登结算中：{ cards, taken: {cardId: 玩家名} }
+    this.asking = null;       // 当前询问：{ player, method, args }
   }
 
   log(msg) {
@@ -81,11 +82,16 @@ export class Game {
   }
 
   // ---------- 基础询问（包装，供 UI 刷新） ----------
+  // asking 记录「正在等谁做什么决定」，供 UI 显示对方思考中/等待提示
   async ask(player, method, ...args) {
+    this.asking = { player, method, args };
     this.notify();
-    const r = await player.controller[method](player, ...args);
-    this.notify();
-    return r;
+    try {
+      return await player.controller[method](player, ...args);
+    } finally {
+      this.asking = null;
+      this.notify();
+    }
   }
 
   // ---------- 牌堆 ----------

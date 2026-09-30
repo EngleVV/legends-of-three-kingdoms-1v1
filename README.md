@@ -27,6 +27,8 @@ npm start          # Electron 启动对局
 
 **回合流程**：准备 → 判定 → 摸牌 → 出牌 → 弃牌 → 结束，含濒死求桃、无懈可击响应链（可反复反制）、延时锦囊判定。
 
+**提示栏（对齐官方）**：阶段进度条（准备→结束，当前阶段高亮，被乐跳过的出牌阶段划掉）+ 当前回合角色头像阶段徽章；正在做决定的一方头像下显示思考进度条；提示语写明「谁对你使用了什么、你需打出什么、不打的后果」（含无双第几张、濒死还需几个桃、无懈针对哪张锦囊）；对方操作时显示「XX 思考中：打出【闪】…」；当前询问下不可用的手牌置暗。
+
 **单挑规则**：起始手牌数等于武将体力上限（诸葛亮/司马懿 3 张），先手首回合摸牌阶段少摸一张。
 
 **武将（8 名）**
@@ -91,7 +93,7 @@ src/
 ## 测试
 
 ```bash
-npm test           # 73 项单元测试（引擎 + 技能 + 装备 + 官方规则边界）
+npm test           # 79 项单元测试（引擎 + 技能 + 装备 + 官方规则边界 + 提示栏文案）
 npm run test:rules # 出牌规则与 UI 交互断言（jsdom）
 npm run test:play  # 自动对局：jsdom 加载真实 UI 自动点击打完 16 局
 npm run shot       # 截图当前界面，用于人工核对布局
@@ -101,7 +103,7 @@ npm run shot       # 截图当前界面，用于人工核对布局
 
 | 文件 | 作用 |
 | --- | --- |
-| `engine.test.js` `skills.test.js` `official-rules.test.js` `ai-regression.test.js` | 确定性单元测试 |
+| `engine.test.js` `skills.test.js` `official-rules.test.js` `ui-prompt.test.js` `ai-regression.test.js` | 确定性单元测试 |
 | `ui-rules-check.js` | 在真实 DOM 上逐条验证出牌规则与交互（含"点击不可选牌应无效"） |
 | `ui-dom.js` | jsdom 加载真实 `index.html` + `app.js`，自动点击打完整局，带日志异常扫描与技能覆盖统计 |
 | `ui-sim.js` | `Controller` 契约层模拟，不依赖 DOM |

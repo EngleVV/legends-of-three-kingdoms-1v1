@@ -68,6 +68,7 @@ export async function resolveJudgeZone(game, player) {
 export async function runTurn(game, player) {
   if (game.over) return;
   game.currentTurnSeat = player.seat;
+  game.currentPhase = 'prepare';
   player.resetTurnFlags();
   game.log(`──── ${player.name} 的回合 ────`);
 
@@ -115,6 +116,7 @@ export async function runTurn(game, player) {
 
   // 弃牌：手牌数 > 体力
   game.currentPhase = 'discard';
+  game.notify();
   const excess = player.hand.length - player.hp;
   if (excess > 0) {
     const cards = await game.ask(player, 'askChooseCards', {
@@ -127,5 +129,6 @@ export async function runTurn(game, player) {
   }
 
   game.currentPhase = 'end';
+  game.notify();
   await game.emit('phaseEnd', { player });
 }

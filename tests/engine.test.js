@@ -243,8 +243,9 @@ test('乐不思蜀：判定非红桃跳过出牌阶段', async () => {
 
 // 顶牌设为「不会命中」的判定牌（非黑桃 2~9）
 function stackNonHit(g) {
+  // 放到牌堆顶（drawOne 从数组末尾取），保证判定牌为红桃、闪电不命中
   const i = g.deck.cards.findIndex(c => c.suit === '♥');
-  g.deck.cards.unshift(g.deck.cards.splice(i, 1)[0]);
+  g.deck.putOnTop([g.deck.cards.splice(i, 1)[0]]);
 }
 
 test('闪电：下家已有【闪电】时不移过去，判定区不会出现两张同名延时锦囊', async () => {
