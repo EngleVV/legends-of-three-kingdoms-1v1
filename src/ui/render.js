@@ -3,7 +3,7 @@ import {
   CARD_NAME, cardLabel, isRed, distance, attackRange,
   canUseInPlayPhase, canUseZhangbaSha, canUseCardAs, pairViewAs, targetCount,
   shaLeftOf, shaLimitOf, EQUIP_RANGE, needsTarget, needsVictim, legalTargets, zhangbaTargets,
-  canSecondTarget, conversionNames, conversionOf, judgeName, handLimitOf,
+  canSecondTarget, conversionNames, conversionOf, judgeName, handLimitOf, rescueAs,
 } from '../data/cards.js';
 import {
   HEROES, HERO_LIST, PACKS, skillName, skillDesc, skillIdsOf, defOf, getSkill, getCard,
@@ -438,14 +438,15 @@ export function renderGame(game, ui, logs) {
       handSelectable = new Set(respondCandidates(game, me, pend.opts.req).map(c => c.id));
       // 转化标记：仅标注「牌名不符但可转化」的牌（龙胆/倾国/武圣）
       for (const c of me.hand) {
-        if (c.name !== pend.opts.req.type && canUseCardAs(me, c, pend.opts.req.type, game)) {
-          virtualShaIds.add(c.id);
-        }
+        if (conversionOf(me, c, pend.opts.req.type, game)) virtualShaIds.add(c.id);
       }
     } else if (pend.mode === 'peach') {
-      // 【桃】或急救（回合外红色牌当【桃】）
-      handSelectable = new Set(me.hand.filter(c => canUseCardAs(me, c, 'tao', game)).map(c => c.id));
-      for (const c of me.hand) if (c.name !== 'tao' && handSelectable.has(c.id)) virtualShaIds.add(c.id);
+      // 求救牌：【桃】（含急救等转化）与自己濒死时的【酒】
+      const dying = pend.opts.info.dying;
+      handSelectable = new Set(me.hand.filter(c => rescueAs(game, me, dying, c)).map(c => c.id));
+      for (const c of me.hand) {
+        if (handSelectable.has(c.id) && c.name !== 'tao' && conversionOf(me, c, 'tao', game)) virtualShaIds.add(c.id);
+      }
     } else if (pend.mode === 'nullify') {
       handSelectable = new Set(me.hand.filter(c => canUseCardAs(me, c, 'wuxie', game)).map(c => c.id));
     } else if (pend.mode === 'pick-hand') {
@@ -591,7 +592,7 @@ const reasonName = a => (defOf(a[0]?.reason) ? `【${skillName(a[0].reason)}】`
 const ASK_VERB = {
   askPlayCard: () => '出牌',
   askRespondCard: a => `打出${cn(a[0]?.type || 'sha')}`,
-  askPeach: () => '是否使用【桃】',
+  askPeach: () => '是否使用求救牌（【桃】/【酒】）',
   askNullify: () => '是否使用【无懈可击】',
   askSkillInvoke: a => `是否发动【${skillName(a[0])}】`,
   askChoosePlayers: a => `${reasonName(a)}选择角色`,
@@ -649,7 +650,9 @@ export function bannerHtml(game, ui) {
       if (spec) {
         [prompt, hint] = targetPrompt(game, pend, spec);
         buttons = btn('confirm-target', '确定', { primary: true, disabled: !spec.ready })
-          + convBtns() + btn('cancel-skill', pend.skillId ? '返回' : '取消');
+          + convBtns()
+          + (!pend.skillId && sel && getCard(sel.name)?.recast && !isEquipped(me, sel) ? btn('recast', '重铸') : '')
+          + btn('cancel-skill', pend.skillId ? '返回' : '取消');
       } else if (pv) {
         prompt = `【${skillName(pend.skillId)}】请选择 ${pv.count} 张手牌当【杀】使用（已选 ${pend.selected.length}/${pv.count}）`;
         buttons = btn('cancel-skill', '返回');
@@ -709,11 +712,13 @@ export function bannerHtml(game, ui) {
       const d = pend.opts.info.dying;
       const need = Math.max(1, 1 - d.hp);
       prompt = d === me
-        ? `你处于濒死状态，还需 ${need} 个【桃】，是否使用【桃】？`
+        ? `你处于濒死状态，还需 ${need} 个【桃】，请选择求救牌（【桃】${me.hand.some(c => c.name === 'jiu') ? '或【酒】' : ''}）`
         : `${d.name} 处于濒死状态，还需 ${need} 个【桃】，是否对其使用【桃】？`;
       const pc = pend.selected[0];
       const via = pc && conversionOf(me, pc, 'tao', game)?.skill;
-      hint = via ? `【${skillName(via)}】将 ${cardLabel(pc)} 当【桃】使用` : d === me ? '不使用【桃】将阵亡' : '';
+      hint = via ? `【${skillName(via)}】将 ${cardLabel(pc)} 当【桃】使用`
+        : pc?.name === 'jiu' ? '【酒】回复 1 点体力（仅能自救）'
+        : d === me ? '不使用求救牌将阵亡' : '';
       buttons = btn('confirm-peach', '确定', { primary: true, disabled: pend.selected.length !== 1 }) + btn('cancel', '不使用');
       break;
     }
@@ -1009,7 +1014,7 @@ export function renderSetup(st) {
     const packTab = (id, label) =>
       `<button class="pack-tab${(st.pack || 'all') === id ? ' on' : ''}" data-action="pack:${id}">${label}</button>`;
     const deckTab = (id, label) =>
-      `<button class="pack-tab${st.decks.includes(id) ? ' on' : ''}" data-action="deck:${id}" title="将【军争篇】的 52 张牌加入牌堆">${label}</button>`;
+      `<button class="pack-tab${(st.decks || ['standard']).includes(id) ? ' on' : ''}" data-action="deck:${id}" title="将【军争篇】的 52 张牌加入牌堆">${label}</button>`;
     body = `
       <div class="hero-filter">
         ${packTab('all', '全部')}${PACKS.filter(p => p.heroes.length).map(p => packTab(p.id, p.name)).join('')}
